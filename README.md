@@ -21,28 +21,47 @@ At its core, the unmixing engine translates pixel intensities at varied light wa
 
 ### 1. Reflectance ($R$)
 Using specific `ref/` and `dark_ref/` reference images, the pixelwise directional tissue reflectance is computed:
-$ R(i,j,\lambda) = \frac{I(i,j,\lambda) - I_{\text{dark}}(i,j,\lambda)}{I_0(i,j,\lambda) - I_{\text{dark}}(i,j,\lambda)} $
+
+$$
+R(i,j,\lambda) = \frac{I(i,j,\lambda) - I_{\text{dark}}(i,j,\lambda)}{I_0(i,j,\lambda) - I_{\text{dark}}(i,j,\lambda)}
+$$
 
 ### 2. Optical Density ($OD$)
 Optical density transitions logarithmic-scaled reflectance representations ensuring linear dependence during subsequent fitting:
-$ OD(i,j,\lambda) = -\log_{10}(R(i,j,\lambda) + \varepsilon) $
+
+$$
+OD(i,j,\lambda) = -\log_{10}(R(i,j,\lambda) + \varepsilon)
+$$
 
 ### 3. Spectral Overlap Integration Formulation
 Standard pseudo-inverse models assume pure monochromatic illumination. Since LEDs possess inherent energy distribution bandwidths, the engine evaluates spectral overlap integration dynamically:
 
 * **Overlap Extinction Coefficient**: For a given LED ($n$) and individual chromophore ($k$): 
-  $\varepsilon_k^{(n)} = \int \phi_n(\lambda)\varepsilon_k(\lambda)d\lambda$
+
+  $$\varepsilon_k^{(n)} = \int \phi_n(\lambda)\varepsilon_k(\lambda)d\lambda$$
+
 * **Overlap Pathlength**: We modulate theoretical estimations via simulated wavelength-correlated penetration distributions $l(\lambda)$: 
-  $l^{(n)} = \int \phi_n(\lambda)l(\lambda)d\lambda$
+
+  $$l^{(n)} = \int \phi_n(\lambda)l(\lambda)d\lambda$$
+
 * **Overlap Component Matrix**: Building an inclusive linear target constraint formulation ($N_{LED} \times 5$ parameters): 
-  $A_{n,k} = l^{(n)} \cdot \varepsilon_k^{(n)}$
+
+  $$A_{n,k} = l^{(n)} \cdot \varepsilon_k^{(n)}$$
+
   *(Note: A base background row column is generally appended resulting in $N_{LED} \times 6$ mapping)*
 
 ### 4. Least Squares Optimization
 Treating the system as an unconstrained inverse linear function over the LED bands, minimizing pixelwise L2 distances:
-$$ \mathbf{y} = \mathbf{A}\mathbf{x} $$
+
+$$
+\mathbf{y} = \mathbf{A}\mathbf{x}
+$$
+
 Where $\mathbf{y}$ is the recorded OD on LED bands. Unmixing simply demands resolving:
-$$ \hat{x} = \arg\min_x \|Ax - y\|_2^2 $$
+
+$$
+\hat{x} = \arg\min_x \|Ax - y\|_2^2
+$$
 
 ---
 
