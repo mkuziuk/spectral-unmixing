@@ -60,7 +60,7 @@ $$
 Where $\mathbf{y}$ is the recorded OD on LED bands. Unmixing simply demands resolving:
 
 $$
-\hat{x} = \arg\min_x \||Ax - y\||_2^2
+\hat{x} = \arg\min_x \lvert Ax - y\rvert_2^2
 $$
 
 ---
