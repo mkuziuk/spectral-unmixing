@@ -21,11 +21,11 @@ At its core, the unmixing engine translates pixel intensities at varied light wa
 
 ### 1. Reflectance ($R$)
 Using specific `ref/` and `dark_ref/` reference images, the pixelwise directional tissue reflectance is computed:
-$$ R(i,j,\lambda) = \frac{I(i,j,\lambda) - I_{\text{dark}}(i,j,\lambda)}{I_0(i,j,\lambda) - I_{\text{dark}}(i,j,\lambda)} $$
+$ R(i,j,\lambda) = \frac{I(i,j,\lambda) - I_{\text{dark}}(i,j,\lambda)}{I_0(i,j,\lambda) - I_{\text{dark}}(i,j,\lambda)} $
 
 ### 2. Optical Density ($OD$)
 Optical density transitions logarithmic-scaled reflectance representations ensuring linear dependence during subsequent fitting:
-$$ OD(i,j,\lambda) = -\log_{10}(R(i,j,\lambda) + \varepsilon) $$
+$ OD(i,j,\lambda) = -\log_{10}(R(i,j,\lambda) + \varepsilon) $
 
 ### 3. Spectral Overlap Integration Formulation
 Standard pseudo-inverse models assume pure monochromatic illumination. Since LEDs possess inherent energy distribution bandwidths, the engine evaluates spectral overlap integration dynamically:
