@@ -1,0 +1,22 @@
+[project]
+name = "spectral-unmixing"
+version = "0.1.0"
+description = "A biomedical hyperspectral unmixing application"
+authors = [
+    { name = "Mikhail", email = "mikhail@example.com" }
+]
+dependencies = [
+    "numpy",
+    "scipy",
+    "matplotlib",
+    "pillow"
+]
+readme = "spectral_unmixing.md"
+requires-python = ">=3.8"
+
+[project.scripts]
+spectral-unmixing = "app.main:main"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
