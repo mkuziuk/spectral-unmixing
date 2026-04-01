@@ -1,5 +1,10 @@
 # Spectral Unmixing Application
 
+<div align="center">
+<img src="assets/before_unmixing.png" alt="Before Unmixing" width="45%"/>
+<img src="assets/after_unmixing.png" alt="After Unmixing" width="45%"/>
+</div>
+
 A biomedical hyperspectral desktop application that processes raw multidimensional image cubes to automatically compute reflectance, optical density, and finally chromophore concentration maps.
 
 By providing an intuitive, minimal Graphical User Interface (GUI), this application allows analyzing samples without deep coding knowledge.
