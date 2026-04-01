@@ -89,7 +89,9 @@ class VizPanel(ttk.Frame):
 
     def _draw_chromophore_maps(self, res):
         conc = res["concentrations"]
-        names = res["chromophore_names"] + ["background"]
+        names = res["chromophore_names"].copy()
+        if res.get("include_background", True):
+            names.append("background")
         n = len(names)
         cols = 3
         rows = (n + cols - 1) // cols

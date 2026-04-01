@@ -25,6 +25,7 @@ from app.core import export
 from app.gui.viz_panel import VizPanel
 from app.gui.inspector import InspectorPanel
 from app.gui.diagnostics import DiagnosticsPanel
+from app.gui.stats_panel import StatsPanel
 
 
 class SpectralUnmixingApp(tk.Tk):
@@ -87,6 +88,21 @@ class SpectralUnmixingApp(tk.Tk):
             toolbar, text="📂 Select Root Folder", command=self._on_select_folder,
         ).pack(side=tk.LEFT, padx=(0, 8))
 
+        self.chrom_mb = ttk.Menubutton(toolbar, text="Chromophores")
+        self.chrom_menu = tk.Menu(self.chrom_mb, tearoff=False)
+        self.chrom_mb.configure(menu=self.chrom_menu)
+        self.chrom_mb.pack(side=tk.LEFT, padx=(0, 8))
+
+        self.chrom_vars = {}
+        for c in ["HbO2", "Hb", "melanin", "bilirubin", "water"]:
+            var = tk.BooleanVar(value=True)
+            self.chrom_vars[c] = var
+            self.chrom_menu.add_checkbutton(label=c, variable=var)
+
+        self.background_var = tk.BooleanVar(value=True)
+        self.chrom_menu.add_separator()
+        self.chrom_menu.add_checkbutton(label="Background", variable=self.background_var)
+
         self.run_btn = ttk.Button(
             toolbar, text="▶ Run Unmixing", command=self._on_run, state=tk.DISABLED,
         )
@@ -143,6 +159,9 @@ class SpectralUnmixingApp(tk.Tk):
 
         self.diag_panel = DiagnosticsPanel(self.notebook, self)
         self.notebook.add(self.diag_panel, text="Diagnostics")
+
+        self.stats_panel = StatsPanel(self.notebook, self)
+        self.notebook.add(self.stats_panel, text="Reflectance Stats")
 
     # ------------------------------------------------------------------
     # Callbacks
@@ -203,8 +222,16 @@ class SpectralUnmixingApp(tk.Tk):
             led_wl, led_em = loader.load_led_emission(self.data_dir, wls)
             pen_wl, pen_depth = loader.load_penetration_depth(self.data_dir)
 
+            selected_chroms = [c for c, var in self.chrom_vars.items() if var.get()]
+            include_background = self.background_var.get()
+
+            if not selected_chroms and not include_background:
+                raise ValueError("No components selected for unmixing.")
+
             A, chrom_names = processing.build_overlap_matrix(
                 led_wl, led_em, chrom_spectra, pen_wl, pen_depth, wls,
+                chromophore_names=selected_chroms,
+                include_background=include_background
             )
 
             n_samples = len(info["samples"])
@@ -246,6 +273,7 @@ class SpectralUnmixingApp(tk.Tk):
                     "diagnostics": diag,
                     "A": A,
                     "chromophore_names": chrom_names,
+                    "include_background": include_background,
                     "wavelengths": wls,
                 }
 
@@ -290,6 +318,7 @@ class SpectralUnmixingApp(tk.Tk):
         self.viz_panel.show_results(name, res)
         self.inspector_panel.set_data(name, res)
         self.diag_panel.show_diagnostics(name, res)
+        self.stats_panel.show_results(name, res)
 
     def _on_save(self):
         """Save all results to disk."""

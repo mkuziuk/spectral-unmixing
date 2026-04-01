@@ -63,9 +63,11 @@ def build_overlap_matrix(
     penetration_wl: np.ndarray,
     penetration_depth: np.ndarray,
     led_wavelengths: list,
-) -> np.ndarray:
+    chromophore_names: list = None,
+    include_background: bool = True,
+) -> tuple:
     """
-    Build the overlap matrix A ∈ R^{N_LED × 6}.
+    Build the overlap matrix A ∈ R^{N_LED × N_components}.
 
     Steps:
         1. Define a common wavelength grid from the LED emission data.
@@ -86,8 +88,8 @@ def build_overlap_matrix(
 
     Returns
     -------
-    A : np.ndarray, shape (N_LED, 6)
-        Columns: HbO2, Hb, melanin, bilirubin, water, background
+    A : np.ndarray, shape (N_LED, N_components)
+        Columns: [chromophores, optional background]
     chromophore_names : list[str]
         Column labels (without background)
     """
@@ -101,7 +103,8 @@ def build_overlap_matrix(
     depth_interp = f_depth(common_wl)
 
     # Interpolate chromophore spectra onto common grid
-    chromophore_names = ["HbO2", "Hb", "melanin", "bilirubin", "water"]
+    if chromophore_names is None:
+        chromophore_names = ["HbO2", "Hb", "melanin", "bilirubin", "water"]
     chrom_interp = {}
     for name in chromophore_names:
         wl, coeff = chromophore_spectra[name]
@@ -113,7 +116,7 @@ def build_overlap_matrix(
 
     n_leds = len(led_wavelengths)
     n_chrom = len(chromophore_names)
-    A = np.zeros((n_leds, n_chrom + 1))  # +1 for background
+    A = np.zeros((n_leds, n_chrom + (1 if include_background else 0)))
 
     for i, led_nm in enumerate(led_wavelengths):
         phi = led_emission[led_nm].copy()
@@ -132,7 +135,8 @@ def build_overlap_matrix(
             A[i, j] = l_n * eps_k_n
 
         # Background column
-        A[i, -1] = 100.0
+        if include_background:
+            A[i, -1] = 100.0
 
     return A, chromophore_names
 
@@ -203,14 +207,19 @@ def compute_derived_maps(
     -------
     dict with 'THb' and 'sO2' arrays (H, W)
     """
-    idx_hbo2 = chromophore_names.index("HbO2")
-    idx_hb = chromophore_names.index("Hb")
+    if "HbO2" in chromophore_names and "Hb" in chromophore_names:
+        idx_hbo2 = chromophore_names.index("HbO2")
+        idx_hb = chromophore_names.index("Hb")
 
-    hbo2 = concentrations[:, :, idx_hbo2]
-    hb = concentrations[:, :, idx_hb]
+        hbo2 = concentrations[:, :, idx_hbo2]
+        hb = concentrations[:, :, idx_hb]
 
-    thb = hbo2 + hb
-    so2 = hbo2 / (thb + eps)
+        thb = hbo2 + hb
+        so2 = hbo2 / (thb + eps)
+    else:
+        H, W = concentrations.shape[:2]
+        thb = np.zeros((H, W))
+        so2 = np.zeros((H, W))
 
     return {"THb": thb, "sO2": so2}
 

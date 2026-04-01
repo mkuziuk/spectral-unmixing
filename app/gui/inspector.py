@@ -138,7 +138,9 @@ class InspectorPanel(ttk.Frame):
 
         # --- Concentrations table ---
         conc = res["concentrations"][row, col, :]
-        names = res["chromophore_names"] + ["background"]
+        names = res["chromophore_names"].copy()
+        if res.get("include_background", True):
+            names.append("background")
 
         self.conc_text.config(state=tk.NORMAL)
         self.conc_text.delete("1.0", tk.END)

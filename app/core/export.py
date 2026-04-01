@@ -36,7 +36,11 @@ def save_results(
     os.makedirs(arrays_dir, exist_ok=True)
 
     # --- Save chromophore maps ---
-    all_names = chromophore_names + ["background"]
+    n_chrom = len(chromophore_names)
+    all_names = chromophore_names.copy()
+    if concentrations.shape[2] > n_chrom:
+        all_names.append("background")
+
     for i, name in enumerate(all_names):
         data = concentrations[:, :, i]
         _save_map_png(data, name, maps_dir)
@@ -56,6 +60,7 @@ def save_results(
         "sample_name": sample_name,
         "timestamp": datetime.datetime.now().isoformat(),
         "chromophores": chromophore_names,
+        "include_background": "background" in all_names,
         "image_shape": list(concentrations.shape[:2]),
         "diagnostics": {
             k: v for k, v in diagnostics.items() if k != "warnings"
