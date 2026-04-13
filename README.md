@@ -13,9 +13,9 @@ By providing an intuitive, minimal Graphical User Interface (GUI), this applicat
 
 * **Automated Data Processing**: Point the application to a root directory containing subfolders for each raw sample alongside reference (`ref/`) and dark-current (`dark_ref/`) folders. 
 * **Reflectance and Optical Density Extractor**: Performs pixelwise calculation from raw spectral intensity data directly.
-* **Complex Overlap Matrix formulation**: Automatically loads target absorption spectra (`data/`). It creates an inclusive physical model handling LED bandwidth and wavelength-dependent penetration depth.
+* **Complex Overlap Matrix formulation**: Automatically loads target absorption spectra (`data/chromophores/`). It creates an inclusive physical model handling LED bandwidth and wavelength-dependent penetration depth.
 * **Fast Spectral Unmixing**: Employs an exact simple least-squares mathematical model completely vectorized over pixel dimensions, enabling fast solving per image.
-* **Component Tracking**: Extracts five critical chromophores simultaneously (Oxyhemoglobin (HbO₂), Deoxyhemoglobin (Hb), Melanin, Bilirubin, and Water).
+* **Dynamic Component Tracking**: Automatically identifies and extracts critical chromophores based on the contents of the `data/chromophores/` directory. Users can flexibly add or alter unmixing targets (such as HbO₂, Hb, Melanin, Bilirubin, and Water) simply by dropping custom `.csv` spectra files into this folder without needing to modify the codebase.
 * **Derived Quality Metrics**: Computes aggregate metrics such as Total Hemoglobin (THb) and Oxygen Saturation (sO₂).
 * **Statistical Analysis**: View summary statistics (mean and median reflectance) per hyperspectral cube across all wavelength bands.
 * **Interactive Data Inspector Panel**: Includes visual diagnostics and an interactive pixel inspector—allowing you to click on any pixel in the loaded cube to see measured versus fitted optical density spectra, estimated concentrations, residuals, and general pixel RMSE.
