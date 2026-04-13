@@ -126,13 +126,7 @@ def _find_image_for_wavelength(folder: str, wl: int) -> str:
 # Chromophore spectra
 # ---------------------------------------------------------------------------
 
-CHROMOPHORE_FILES = {
-    "HbO2": "oxyhemoglobin_data.csv",
-    "Hb": "deoxyhemoglobin_data.csv",
-    "melanin": "melanin_data.csv",
-    "bilirubin": "bilirubin_data.csv",
-    "water": "water_data.csv",
-}
+
 
 
 def load_chromophore_spectra(data_dir: str) -> dict:
@@ -144,10 +138,15 @@ def load_chromophore_spectra(data_dir: str) -> dict:
     dict  {name: (wavelengths_array, coefficients_array)}
     """
     spectra = {}
-    for name, filename in CHROMOPHORE_FILES.items():
-        path = os.path.join(data_dir, filename)
-        wls, coeffs = _load_two_column_csv(path)
-        spectra[name] = (np.asarray(wls), np.asarray(coeffs))
+    chrom_dir = os.path.join(data_dir, "chromophores")
+    if os.path.isdir(chrom_dir):
+        for filename in sorted(os.listdir(chrom_dir)):
+            if filename.endswith(".csv") and not filename.startswith("."):
+                name = os.path.splitext(filename)[0]
+                path = os.path.join(chrom_dir, filename)
+                wls, coeffs = _load_two_column_csv(path)
+                if wls and coeffs:
+                    spectra[name] = (np.asarray(wls), np.asarray(coeffs))
     return spectra
 
 

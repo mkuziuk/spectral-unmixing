@@ -104,7 +104,7 @@ def build_overlap_matrix(
 
     # Interpolate chromophore spectra onto common grid
     if chromophore_names is None:
-        chromophore_names = ["HbO2", "Hb", "melanin", "bilirubin", "water"]
+        chromophore_names = list(chromophore_spectra.keys())
     chrom_interp = {}
     for name in chromophore_names:
         wl, coeff = chromophore_spectra[name]

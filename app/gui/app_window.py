@@ -94,10 +94,12 @@ class SpectralUnmixingApp(tk.Tk):
         self.chrom_mb.pack(side=tk.LEFT, padx=(0, 8))
 
         self.chrom_vars = {}
-        for c in ["HbO2", "Hb", "melanin", "bilirubin", "water"]:
-            var = tk.BooleanVar(value=True)
-            self.chrom_vars[c] = var
-            self.chrom_menu.add_checkbutton(label=c, variable=var)
+        if self.data_dir:
+            chrom_spectra = loader.load_chromophore_spectra(self.data_dir)
+            for c in chrom_spectra.keys():
+                var = tk.BooleanVar(value=True)
+                self.chrom_vars[c] = var
+                self.chrom_menu.add_checkbutton(label=c, variable=var)
 
         self.background_var = tk.BooleanVar(value=True)
         self.chrom_menu.add_separator()
