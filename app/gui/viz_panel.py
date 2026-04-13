@@ -108,10 +108,10 @@ class VizPanel(ttk.Frame):
     def _draw_derived_maps(self, res):
         maps = {
             "THb": res["derived"]["THb"],
-            "sO₂": res["derived"]["sO2"],
+            "StO₂": res["derived"]["StO2"],
             "RMSE": res["rmse_map"],
         }
-        cmaps = {"THb": "Reds", "sO₂": "RdYlBu_r", "RMSE": "hot"}
+        cmaps = {"THb": "Reds", "StO₂": "RdYlBu_r", "RMSE": "hot"}
 
         for i, (name, data) in enumerate(maps.items()):
             ax = self.fig.add_subplot(1, 3, i + 1)

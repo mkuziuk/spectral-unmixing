@@ -196,7 +196,7 @@ def compute_derived_maps(
     eps: float = 1e-10,
 ) -> dict:
     """
-    Compute THb and sO2 maps.
+    Compute THb and StO2 maps.
 
     Parameters
     ----------
@@ -205,7 +205,7 @@ def compute_derived_maps(
 
     Returns
     -------
-    dict with 'THb' and 'sO2' arrays (H, W)
+    dict with 'THb' and 'StO2' arrays (H, W)
     """
     if "HbO2" in chromophore_names and "Hb" in chromophore_names:
         idx_hbo2 = chromophore_names.index("HbO2")
@@ -215,13 +215,13 @@ def compute_derived_maps(
         hb = concentrations[:, :, idx_hb]
 
         thb = hbo2 + hb
-        so2 = hbo2 / (thb + eps)
+        sto2 = hbo2 / (thb + eps)
     else:
         H, W = concentrations.shape[:2]
         thb = np.zeros((H, W))
-        so2 = np.zeros((H, W))
+        sto2 = np.zeros((H, W))
 
-    return {"THb": thb, "sO2": so2}
+    return {"THb": thb, "StO2": sto2}
 
 
 # ---------------------------------------------------------------------------

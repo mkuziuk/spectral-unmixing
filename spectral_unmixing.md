@@ -286,7 +286,7 @@ The UI should be minimal, clean, and focused on the workflow:
 
 #### Derived maps
 - THb
-- sO₂
+- StO₂
 - residual map
 
 ---
