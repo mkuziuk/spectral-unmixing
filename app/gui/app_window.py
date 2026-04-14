@@ -279,8 +279,15 @@ class SpectralUnmixingApp(tk.Tk):
                     "wavelengths": wls,
                 }
 
+            # Compute global min/max scales per chromophore across all samples
+            chrom_scales, derived_scales = self._compute_global_scales(chrom_names, include_background)
+
             self._set_progress(100)
             self._set_status(f"Done — {n_samples} samples processed")
+
+            # Store scales in results for use by viz/export
+            self._chrom_scales = chrom_scales
+            self._derived_scales = derived_scales
 
             # Update UI on main thread
             self.after(0, self._on_pipeline_done)
@@ -289,6 +296,67 @@ class SpectralUnmixingApp(tk.Tk):
             self.after(0, lambda: messagebox.showerror("Processing Error", str(e)))
             self.after(0, lambda: self.run_btn.config(state=tk.NORMAL))
             self.after(0, lambda: self.status_var.set("Error during processing"))
+
+    def _compute_global_scales(self, chrom_names, include_background):
+        """
+        Compute global min/max per chromophore across all samples.
+
+        Returns
+        -------
+        chrom_scales : dict  {name: (vmin, vmax)}
+        derived_scales : dict  {name: (vmin, vmax)}  for THb, StO2, RMSE
+        """
+        all_names = chrom_names.copy()
+        if include_background:
+            all_names.append("background")
+
+        n_chrom = len(all_names)
+
+        # Chromophore scales
+        chrom_scales = {}
+        for i, name in enumerate(all_names):
+            vals = []
+            for res in self.results.values():
+                conc = res["concentrations"][:, :, i]
+                finite = conc[np.isfinite(conc)]
+                if finite.size > 0:
+                    vals.append(finite)
+            if vals:
+                all_vals = np.concatenate(vals)
+                chrom_scales[name] = (float(all_vals.min()), float(all_vals.max()))
+            else:
+                chrom_scales[name] = (0.0, 1.0)
+
+        # Derived scales (THb, StO2, RMSE)
+        derived_scales = {}
+        for res in self.results.values():
+            for key in ["THb", "StO2"]:
+                data = res["derived"].get(key)
+                if data is not None:
+                    finite = data[np.isfinite(data)]
+                    if finite.size > 0:
+                        cur = derived_scales.get(key)
+                        if cur is None:
+                            derived_scales[key] = (float(finite.min()), float(finite.max()))
+                        else:
+                            derived_scales[key] = (
+                                min(cur[0], float(finite.min())),
+                                max(cur[1], float(finite.max())),
+                            )
+            # RMSE
+            rmse = res["rmse_map"]
+            finite = rmse[np.isfinite(rmse)]
+            if finite.size > 0:
+                cur = derived_scales.get("RMSE")
+                if cur is None:
+                    derived_scales["RMSE"] = (float(finite.min()), float(finite.max()))
+                else:
+                    derived_scales["RMSE"] = (
+                        min(cur[0], float(finite.min())),
+                        max(cur[1], float(finite.max())),
+                    )
+
+        return chrom_scales, derived_scales
 
     def _on_pipeline_done(self):
         """Called on the main thread after pipeline completes."""
@@ -317,7 +385,9 @@ class SpectralUnmixingApp(tk.Tk):
         self.warnings_text.config(state=tk.DISABLED)
 
         # Update panels
-        self.viz_panel.show_results(name, res)
+        chrom_scales = getattr(self, "_chrom_scales", None)
+        derived_scales = getattr(self, "_derived_scales", None)
+        self.viz_panel.show_results(name, res, chrom_scales, derived_scales)
         self.inspector_panel.set_data(name, res)
         self.diag_panel.show_diagnostics(name, res)
         self.stats_panel.show_results(name, res)
@@ -327,6 +397,8 @@ class SpectralUnmixingApp(tk.Tk):
         out_dir = filedialog.askdirectory(title="Select output directory")
         if not out_dir:
             return
+        chrom_scales = getattr(self, "_chrom_scales", None)
+        derived_scales = getattr(self, "_derived_scales", None)
         for name, res in self.results.items():
             self._set_status(f"Saving {name}...")
             export.save_results(
@@ -336,6 +408,8 @@ class SpectralUnmixingApp(tk.Tk):
                 res["derived"],
                 res["rmse_map"],
                 res["diagnostics"],
+                chrom_scales=chrom_scales,
+                derived_scales=derived_scales,
             )
         self._set_status(f"Saved {len(self.results)} samples to {os.path.basename(out_dir)}")
         messagebox.showinfo("Export", f"Results saved to:\n{out_dir}")

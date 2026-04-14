@@ -54,9 +54,11 @@ class VizPanel(ttk.Frame):
 
         self._current_res = None
 
-    def show_results(self, name, res):
+    def show_results(self, name, res, chrom_scales=None, derived_scales=None):
         """Display results for selected sample."""
         self._current_res = res
+        self._chrom_scales = chrom_scales
+        self._derived_scales = derived_scales
 
         # Update band combo
         wls = res["wavelengths"]
@@ -99,8 +101,18 @@ class VizPanel(ttk.Frame):
         for i, name in enumerate(names):
             ax = self.fig.add_subplot(rows, cols, i + 1)
             data = conc[:, :, i]
-            im = ax.imshow(data, cmap="viridis", aspect="equal")
-            ax.set_title(name, fontsize=10)
+            vmin, vmax = self._chrom_scales.get(name, (None, None)) if self._chrom_scales else (None, None)
+            im = ax.imshow(data, cmap="viridis", aspect="equal", vmin=vmin, vmax=vmax)
+
+            finite = data[np.isfinite(data)]
+            if finite.size > 0:
+                mean_val = finite.mean()
+                median_val = np.median(finite)
+                title = f"{name}\nμ={mean_val:.3e}, med={median_val:.3e}"
+            else:
+                title = name
+
+            ax.set_title(title, fontsize=10)
             ax.set_xticks([])
             ax.set_yticks([])
             self.fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
@@ -115,7 +127,8 @@ class VizPanel(ttk.Frame):
 
         for i, (name, data) in enumerate(maps.items()):
             ax = self.fig.add_subplot(1, 3, i + 1)
-            im = ax.imshow(data, cmap=cmaps.get(name, "viridis"), aspect="equal")
+            vmin, vmax = self._derived_scales.get(name, (None, None)) if self._derived_scales else (None, None)
+            im = ax.imshow(data, cmap=cmaps.get(name, "viridis"), aspect="equal", vmin=vmin, vmax=vmax)
             ax.set_title(name, fontsize=10)
             ax.set_xticks([])
             ax.set_yticks([])
