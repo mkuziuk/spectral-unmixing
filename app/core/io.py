@@ -3,7 +3,7 @@ I/O module for spectral unmixing.
 
 Handles:
 - Folder structure detection (samples, ref, dark_ref)
-- Image cube loading (JPEG → grayscale float64 arrays)
+- Image cube loading (JPEG/DNG → grayscale float64 arrays)
 - Chromophore spectra loading from CSV
 - LED emission spectra loading
 - Penetration depth loading
@@ -14,6 +14,7 @@ import re
 import numpy as np
 from PIL import Image
 import csv
+import rawpy
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +93,7 @@ def load_image_cube(folder: str, wavelengths: list) -> np.ndarray:
     Parameters
     ----------
     folder : str
-        Directory containing ``<wavelength>nm_*.jpg`` files.
+        Directory containing ``<wavelength>nm_*.jpg`` or ``<wavelength>nm_*.dng`` files.
     wavelengths : list[int]
         Sorted wavelengths to load.
 
@@ -104,11 +105,52 @@ def load_image_cube(folder: str, wavelengths: list) -> np.ndarray:
     slices = []
     for wl in wavelengths:
         path = _find_image_for_wavelength(folder, wl)
+        gray = _load_image_as_grayscale(path)
+        slices.append(gray)
+    return np.stack(slices, axis=-1)  # (H, W, N_bands)
+
+
+def _load_image_as_grayscale(path: str) -> np.ndarray:
+    """
+    Load an image file and convert to grayscale.
+    
+    Supports both JPEG/PNG (via PIL) and DNG (via rawpy) formats.
+    For color images, averages RGB channels to produce grayscale.
+    
+    Parameters
+    ----------
+    path : str
+        Path to the image file.
+        
+    Returns
+    -------
+    gray : np.ndarray, shape (H, W), dtype float64
+        Grayscale image array.
+    """
+    ext = os.path.splitext(path)[1].lower()
+    
+    if ext == '.dng':
+        # Load DNG using rawpy
+        with rawpy.imread(path) as raw:
+            # Postprocess to get RGB image
+            rgb = raw.postprocess(
+                use_camera_wb=True,
+                half_size=False,
+                no_auto_bright=True,
+                output_bps=16
+            )
+        arr = np.asarray(rgb, dtype=np.float64)
+        # Average RGB channels
+        gray = arr.mean(axis=2)
+        # Scale from 16-bit range to match 8-bit behavior [0, 255]
+        gray = gray / 65535.0 * 255.0
+    else:
+        # Load JPEG/PNG using PIL
         img = Image.open(path).convert("RGB")
         arr = np.asarray(img, dtype=np.float64)
         gray = arr.mean(axis=2)  # average RGB channels
-        slices.append(gray)
-    return np.stack(slices, axis=-1)  # (H, W, N_bands)
+    
+    return gray
 
 
 def _find_image_for_wavelength(folder: str, wl: int) -> str:
