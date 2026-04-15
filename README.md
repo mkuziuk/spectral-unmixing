@@ -1,6 +1,6 @@
 # Spectral Unmixing Application
 
-[![Download](https://img.shields.io/badge/Download-Windows%20.exe-blue)](https://github.com/mikhail/spectral-unmixing/releases/latest)
+[![Download](https://img.shields.io/badge/Download-Windows%20.exe-blue)](https://github.com/mkuziuk/spectral-unmixing/releases/latest)
 
 <div align="center">
 <img src="assets/before_unmixing.png" alt="Before Unmixing" width="45%"/>
