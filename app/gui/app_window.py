@@ -105,6 +105,24 @@ class SpectralUnmixingApp(tk.Tk):
         self.chrom_menu.add_separator()
         self.chrom_menu.add_checkbutton(label="Background", variable=self.background_var)
 
+        # Solver selection dropdown
+        ttk.Label(toolbar, text="Solver:").pack(side=tk.LEFT, padx=(8, 4))
+        self.solver_var = tk.StringVar(value="ls")
+        solver_combo = ttk.Combobox(
+            toolbar,
+            textvariable=self.solver_var,
+            values=["ls", "nnls"],
+            state="readonly",
+            width=8,
+        )
+        solver_combo.pack(side=tk.LEFT, padx=(0, 8))
+
+        # Background value input
+        ttk.Label(toolbar, text="Background:").pack(side=tk.LEFT, padx=(8, 4))
+        self.background_value_var = tk.StringVar(value="2500.0")
+        bg_entry = ttk.Entry(toolbar, textvariable=self.background_value_var, width=8)
+        bg_entry.pack(side=tk.LEFT, padx=(0, 8))
+
         self.run_btn = ttk.Button(
             toolbar, text="▶ Run Unmixing", command=self._on_run, state=tk.DISABLED,
         )
@@ -226,6 +244,13 @@ class SpectralUnmixingApp(tk.Tk):
 
             selected_chroms = [c for c, var in self.chrom_vars.items() if var.get()]
             include_background = self.background_var.get()
+            solver_method = self.solver_var.get()
+
+            # Parse background value
+            try:
+                bg_value = float(self.background_value_var.get())
+            except ValueError:
+                raise ValueError("Background value must be a number.")
 
             if not selected_chroms and not include_background:
                 raise ValueError("No components selected for unmixing.")
@@ -233,7 +258,8 @@ class SpectralUnmixingApp(tk.Tk):
             A, chrom_names = processing.build_overlap_matrix(
                 led_wl, led_em, chrom_spectra, pen_wl, pen_depth, wls,
                 chromophore_names=selected_chroms,
-                include_background=include_background
+                include_background=include_background,
+                background_value=bg_value,
             )
 
             n_samples = len(info["samples"])
@@ -256,7 +282,7 @@ class SpectralUnmixingApp(tk.Tk):
                 od_cube = processing.compute_optical_density(reflectance)
 
                 # Unmixing
-                concentrations, rmse_map, fitted_od = processing.solve_unmixing(od_cube, A)
+                concentrations, rmse_map, fitted_od = processing.solve_unmixing(od_cube, A, method=solver_method)
 
                 # Derived maps
                 derived = processing.compute_derived_maps(concentrations, chrom_names)
@@ -276,6 +302,8 @@ class SpectralUnmixingApp(tk.Tk):
                     "A": A,
                     "chromophore_names": chrom_names,
                     "include_background": include_background,
+                    "background_value": bg_value,
+                    "solver_method": solver_method,
                     "wavelengths": wls,
                 }
 
