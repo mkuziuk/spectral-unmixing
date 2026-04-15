@@ -147,8 +147,8 @@ class InspectorPanel(ttk.Frame):
         self.conc_text.insert(tk.END, f"{'Chromophore':<16} {'Concentration':>14}\n")
         self.conc_text.insert(tk.END, "─" * 32 + "\n")
         for n, c in zip(names, conc):
-            self.conc_text.insert(tk.END, f"{n:<16} {c:>14.6f}\n")
+            self.conc_text.insert(tk.END, f"{n:<16} {c:>14.6e}\n")
 
         rmse = res["rmse_map"][row, col]
-        self.conc_text.insert(tk.END, f"\n{'RMSE':<16} {rmse:>14.6f}\n")
+        self.conc_text.insert(tk.END, f"\n{'RMSE':<16} {rmse:>14.6e}\n")
         self.conc_text.config(state=tk.DISABLED)
