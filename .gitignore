@@ -1,6 +1,7 @@
 **/__pycache__
 /.venv
 /.qwen
+.DS_Store
 
 /photos_26-03-2026
 /liquid_phantoms_for_unmixing_cropped
