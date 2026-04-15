@@ -19,6 +19,8 @@ def save_results(
     derived: dict,
     rmse_map: np.ndarray,
     diagnostics: dict,
+    chrom_scales: dict = None,
+    derived_scales: dict = None,
 ):
     """
     Save all results for one sample.
@@ -43,16 +45,26 @@ def save_results(
 
     for i, name in enumerate(all_names):
         data = concentrations[:, :, i]
-        _save_map_png(data, name, maps_dir)
+        vmin, vmax = chrom_scales.get(name, (None, None)) if chrom_scales else (None, None)
+        finite = data[np.isfinite(data)]
+        if finite.size > 0:
+            mean_val = finite.mean()
+            median_val = float(np.median(finite))
+            display_title = f"{name}\nμ={mean_val:.3e}, med={median_val:.3e}"
+        else:
+            display_title = name
+        _save_map_png(data, display_title, name, maps_dir, vmin=vmin, vmax=vmax)
         np.save(os.path.join(arrays_dir, f"{name}.npy"), data)
 
     # --- Save derived maps ---
     for name, data in derived.items():
-        _save_map_png(data, name, maps_dir)
+        vmin, vmax = derived_scales.get(name, (None, None)) if derived_scales else (None, None)
+        _save_map_png(data, name, name, maps_dir, vmin=vmin, vmax=vmax)
         np.save(os.path.join(arrays_dir, f"{name}.npy"), data)
 
     # --- Save RMSE map ---
-    _save_map_png(rmse_map, "RMSE", maps_dir, cmap="hot")
+    vmin, vmax = derived_scales.get("RMSE", (None, None)) if derived_scales else (None, None)
+    _save_map_png(rmse_map, "RMSE", "RMSE", maps_dir, cmap="hot", vmin=vmin, vmax=vmax)
     np.save(os.path.join(arrays_dir, "RMSE.npy"), rmse_map)
 
     # --- Save metadata ---
@@ -74,19 +86,22 @@ def save_results(
 def _save_map_png(
     data: np.ndarray,
     title: str,
+    filename: str,
     output_dir: str,
     cmap: str = "viridis",
+    vmin: float = None,
+    vmax: float = None,
 ):
     """Save a 2D array as a PNG image with colorbar."""
     fig, ax = plt.subplots(1, 1, figsize=(5, 4))
-    im = ax.imshow(data, cmap=cmap, aspect="equal")
+    im = ax.imshow(data, cmap=cmap, aspect="equal", vmin=vmin, vmax=vmax)
     ax.set_title(title, fontsize=12)
     ax.set_xticks([])
     ax.set_yticks([])
     plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     fig.tight_layout()
     fig.savefig(
-        os.path.join(output_dir, f"{title}.png"),
+        os.path.join(output_dir, f"{filename}.png"),
         dpi=150, bbox_inches="tight",
     )
     plt.close(fig)
