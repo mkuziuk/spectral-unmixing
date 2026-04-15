@@ -7,6 +7,7 @@ Pipeline:
 
 import numpy as np
 from scipy.interpolate import interp1d
+from scipy.optimize import nnls
 
 
 # ---------------------------------------------------------------------------
@@ -65,6 +66,7 @@ def build_overlap_matrix(
     led_wavelengths: list,
     chromophore_names: list = None,
     include_background: bool = True,
+    background_value: float = 2500.0,
 ) -> tuple:
     """
     Build the overlap matrix A ∈ R^{N_LED × N_components}.
@@ -76,7 +78,7 @@ def build_overlap_matrix(
         4. Compute overlap extinction: eps_k^n = ∫ phi_n(λ) * eps_k(λ) dλ
         5. Compute overlap pathlength: l^n = ∫ phi_n(λ) * l(λ) dλ
         6. A[n,k] = l^n * eps_k^n
-        7. Append background column (100.0).
+        7. Append background column (configurable, default 2500.0).
 
     Parameters
     ----------
@@ -85,11 +87,15 @@ def build_overlap_matrix(
     chromophore_spectra : dict {name: (wl_array, coeff_array)}
     penetration_wl, penetration_depth : arrays
     led_wavelengths : list[int], ordered LED centre wavelengths
+    include_background : bool, optional
+        Whether to append a background column (default True)
+    background_value : float, optional
+        Value for the background column (default 2500.0)
 
     Returns
     -------
     A : np.ndarray, shape (N_LED, N_components)
-        Columns: [chromophores, optional background]
+        Columns: [chromophores, optional background with value `background_value`]
     chromophore_names : list[str]
         Column labels (without background)
     """
@@ -136,7 +142,7 @@ def build_overlap_matrix(
 
         # Background column
         if include_background:
-            A[i, -1] = 100.0
+            A[i, -1] = background_value
 
     return A, chromophore_names
 
@@ -148,22 +154,39 @@ def build_overlap_matrix(
 def solve_unmixing(
     od_cube: np.ndarray,
     A: np.ndarray,
+    method: str = "ls",
 ) -> tuple:
     """
-    Pixelwise least-squares spectral unmixing.
-
-    For each pixel: min_x ||Ax - y||^2  via numpy.linalg.lstsq
+    Pixelwise spectral unmixing.
 
     Parameters
     ----------
     od_cube : (H, W, N_bands) optical density
     A : (N_bands, N_chromophores+1) overlap matrix
+    method : str, optional
+        "ls" for unconstrained least-squares (numpy.linalg.lstsq)
+        "nnls" for non-negative least-squares (scipy.optimize.nnls)
 
     Returns
     -------
     concentrations : (H, W, N_chromophores+1)
     residual_map : (H, W) RMSE per pixel
     fitted_od : (H, W, N_bands) reconstructed OD
+    """
+    if method == "nnls":
+        return _solve_unmixing_nnls(od_cube, A)
+    else:
+        return _solve_unmixing_ls(od_cube, A)
+
+
+def _solve_unmixing_ls(
+    od_cube: np.ndarray,
+    A: np.ndarray,
+) -> tuple:
+    """
+    Pixelwise least-squares spectral unmixing (unconstrained).
+
+    For each pixel: min_x ||Ax - y||^2  via numpy.linalg.lstsq
     """
     H, W, N = od_cube.shape
     n_components = A.shape[1]
@@ -175,6 +198,37 @@ def solve_unmixing(
     # numpy lstsq solves A @ x = b for each column of b
     X, residuals, rank, sv = np.linalg.lstsq(A, Y.T, rcond=None)
     # X shape: (n_components, H*W)
+
+    concentrations = X.T.reshape(H, W, n_components)
+
+    # Compute fitted OD and residuals
+    fitted = (A @ X).T.reshape(H, W, N)  # (H, W, N)
+    residual_per_pixel = od_cube - fitted
+    rmse_map = np.sqrt(np.mean(residual_per_pixel ** 2, axis=2))
+
+    return concentrations, rmse_map, fitted
+
+
+def _solve_unmixing_nnls(
+    od_cube: np.ndarray,
+    A: np.ndarray,
+) -> tuple:
+    """
+    Pixelwise non-negative least-squares spectral unmixing.
+
+    For each pixel: min_x ||Ax - y||^2  subject to x >= 0
+    via scipy.optimize.nnls
+    """
+    H, W, N = od_cube.shape
+    n_components = A.shape[1]
+
+    # Reshape to (N_pixels, N_bands)
+    Y = od_cube.reshape(-1, N)  # (H*W, N)
+
+    # Solve NNLS for each pixel
+    X = np.zeros((n_components, Y.shape[0]))
+    for i in range(Y.shape[0]):
+        X[:, i], _ = nnls(A, Y[i])
 
     concentrations = X.T.reshape(H, W, n_components)
 
