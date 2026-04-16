@@ -56,7 +56,7 @@ Standard pseudo-inverse models assume pure monochromatic illumination. Since LED
 
   $$A_{n,k} = l^{(n)} \cdot \varepsilon_k^{(n)}$$
 
-  *(Note: A base background row column is generally appended resulting in $N_{LED} \times 6$ mapping)*
+  (Note: A base background row column is generally appended resulting in $N_{LED} \times 6$ mapping)
 
 ### 4. Least Squares Optimization
 Treating the system as an unconstrained inverse linear function over the LED bands, minimizing pixelwise L2 distances:
