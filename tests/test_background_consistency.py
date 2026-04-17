@@ -72,14 +72,17 @@ class TestBackgroundConsistency(unittest.TestCase):
         result_100 = self._run_unmixing(self.base_od, A_100)
         A_0, _ = self._build_overlap_matrix(background_value=0.0)
         result_0 = self._run_unmixing(self.base_od, A_0)
-        
-        self.assertFalse(np.allclose(result_2500['mean_thb'], result_100['mean_thb']))
+
+        # Background values 2500 and 100 both produce a constant column in A,
+        # so the chromophore coefficients are identical (only bg coefficient scales).
+        # Only bg=0 (no background column) changes the chromophore maps.
+        self.assertTrue(np.allclose(result_2500['mean_thb'], result_100['mean_thb']))
         self.assertFalse(np.allclose(result_2500['mean_thb'], result_0['mean_thb']))
-        
+
         print('  Mean THb (bg=2500): ' + str(round(result_2500['mean_thb'], 4)))
         print('  Mean THb (bg=100):  ' + str(round(result_100['mean_thb'], 4)))
         print('  Mean THb (bg=0):    ' + str(round(result_0['mean_thb'], 4)))
-        print('  OK: Background values produce different results')
+        print('  OK: bg=0 differs; bg=2500 and bg=100 produce identical chromophore maps')
     
     def test_reverting_background_value_preserves_results(self):
         print()
