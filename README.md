@@ -18,6 +18,7 @@ By providing an intuitive, minimal Graphical User Interface (GUI), this applicat
 * **Complex Overlap Matrix formulation**: Automatically loads target absorption spectra (`data/chromophores/`). It creates an inclusive physical model handling LED bandwidth and wavelength-dependent penetration depth.
 * **Fast Spectral Unmixing**: Employs an exact simple least-squares mathematical model completely vectorized over pixel dimensions, enabling fast solving per image.
 * **Dynamic Component Tracking**: Automatically identifies and extracts critical chromophores based on the contents of the `data/chromophores/` directory. Users can flexibly add or alter unmixing targets (such as HbO₂, Hb, Melanin, Bilirubin, and Water) simply by dropping custom `.csv` spectra files into this folder without needing to modify the codebase.
+* **Custom Data Folder Selection**: Users can select a custom data folder via the UI to support different experimental setups or shared reference data. The application validates the folder structure and provides clear error messages for missing required files.
 * **Derived Quality Metrics**: Computes aggregate metrics such as Total Hemoglobin (THb) and Oxygen Saturation (StO₂).
 * **Statistical Analysis**: View summary statistics (mean and median reflectance) per hyperspectral cube across all wavelength bands.
 * **Interactive Data Inspector Panel**: Includes visual diagnostics and an interactive pixel inspector—allowing you to click on any pixel in the loaded cube to see measured versus fitted optical density spectra, estimated concentrations, residuals, and general pixel RMSE.
@@ -151,3 +152,55 @@ The application requires **Python 3.8+** and utilizes standard scientific and in
 
 ### Troubleshooting
 If UI windows fail to appear, ensure that your OS graphics packages correctly bind Python `tkinter`. Linux machines often decouple UI bindings (`python3-tk` or `python-tkinter` depending upon RPM/Deb distributions). For macOS, native homebrew `python` typically packages tk implementations inherently.
+
+## Custom Data Folder Support
+
+### Folder Structure Requirements
+
+When selecting a custom data folder via the **🧪 Select Data Folder** button in the UI, the folder must contain the following structure:
+
+```
+custom_data_folder/
+├── leds_emission.csv              # LED emission spectra (required)
+├── penetration_depth*.csv         # Penetration depth data (required, see note below)
+└── chromophores/                  # Directory with chromophore spectra (required)
+    ├── HbO2.csv
+    ├── Hb.csv
+    └── ... (more .csv files)
+```
+
+**Required Files:**
+
+| File | Description |
+|------|-------------|
+| `leds_emission.csv` | CSV with wavelength column and LED emission intensity columns |
+| `penetration_depth*.csv` | Penetration depth vs. wavelength (at least one required) |
+| `chromophores/` | Directory containing at least one `.csv` file with extinction coefficients |
+
+**Penetration Depth File Selection:**
+- If `penetration_depth_digitized.csv` exists, it will be selected automatically
+- Otherwise, the lexicographically first `penetration_depth*.csv` file is chosen
+- **Recommendation**: Use `penetration_depth_digitized.csv` for consistency when multiple options exist
+
+### Basic Usage Flow
+
+1. Launch the application: `python app/main.py`
+2. Click **📂 Select Root Folder** to choose your sample data directory (containing image cubes, `ref/`, and `dark_ref/`)
+3. Click **🧪 Select Data Folder** to choose a custom data folder with required files
+4. Verify the data source label shows your custom folder
+5. Select desired chromophores from the **Chromophores** menu
+6. Adjust solver (LS/NNLS) and background value if needed
+7. Click **▶ Run Unmixing** to process all samples
+8. Use the tabs (Maps, Pixel Inspector, Diagnostics, Reflectance Stats) to view results
+9. Click **💾 Save Results** to export component maps and arrays
+
+### Common Errors and Solutions
+
+| Error Message | Cause | Solution |
+|---------------|-------|----------|
+| `Required file 'leds_emission.csv' not found` | Missing LED emission file | Add `leds_emission.csv` to your data folder |
+| `Required file 'penetration_depth*.csv' not found` | No penetration depth file | Add at least one `penetration_depth*.csv` file |
+| `Required directory 'chromophores/' not found` | Missing chromophores directory | Create `chromophores/` and add `.csv` files |
+| `Directory 'chromophores/' contains no .csv files` | Empty chromophores directory | Add at least one `.csv` file with extinction coefficients |
+| `LED {wl} nm not found in ...` | Wavelength mismatch | Ensure LED wavelengths in `leds_emission.csv` match your image cube filenames |
+

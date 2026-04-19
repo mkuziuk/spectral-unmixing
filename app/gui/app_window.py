@@ -42,6 +42,7 @@ class SpectralUnmixingApp(tk.Tk):
         self.folder_info = None
         self.data_dir = self._find_data_dir()
         self.results = {}  # sample_name → result dict
+        self._default_data_dir = self.data_dir  # Store default for reset
 
         # ---- Build UI ----
         self._build_toolbar()
@@ -55,6 +56,33 @@ class SpectralUnmixingApp(tk.Tk):
     # ------------------------------------------------------------------
     # Data directory
     # ------------------------------------------------------------------
+
+    def _refresh_chromophore_menu(self):
+        """Rebuild chromophore menu checkboxes based on current data_dir."""
+        # Clear existing entries
+        self.chrom_vars.clear()
+        menu_items = self.chrom_menu.index("end")
+        if menu_items is not None:
+            for _ in range(menu_items + 1):
+                self.chrom_menu.delete(0)
+
+        if not self.data_dir:
+            self.chrom_menu.add_separator()
+            self.chrom_menu.add_checkbutton(label="Background", variable=self.background_var)
+            return
+
+        try:
+            chrom_spectra = loader.load_chromophore_spectra(self.data_dir)
+            for c in sorted(chrom_spectra.keys()):
+                var = tk.BooleanVar(value=True)
+                self.chrom_vars[c] = var
+                self.chrom_menu.add_checkbutton(label=c, variable=var)
+        except Exception:
+            # If loading fails, leave menu empty except background
+            pass
+
+        self.chrom_menu.add_separator()
+        self.chrom_menu.add_checkbutton(label="Background", variable=self.background_var)
 
     def _find_data_dir(self):
         """Locate the data/ folder relative to the project root."""
@@ -76,6 +104,36 @@ class SpectralUnmixingApp(tk.Tk):
                 return c
         return None
 
+    def _on_select_data_folder(self):
+        """Select a custom data folder and update UI."""
+        path = filedialog.askdirectory(title="Select data folder (contains chromophores/, leds_emission.csv, etc.)")
+        if not path:
+            return
+
+        # Validate with core I/O helper
+        try:
+            loader.validate_data_directory(path)
+        except FileNotFoundError as e:
+            messagebox.showerror("Invalid Data Folder", str(e))
+            return
+        except ValueError as e:
+            messagebox.showerror("Invalid Data Folder", str(e))
+            return
+
+        self.data_dir = path
+        self._refresh_chromophore_menu()
+        self.data_source_var.set(f"Data: custom ({os.path.basename(path)})")
+
+    def _on_reset_data_folder(self):
+        """Reset to auto-discovered default data folder."""
+        self.data_dir = self._find_data_dir()
+        self._default_data_dir = self.data_dir
+        self._refresh_chromophore_menu()
+        if self.data_dir:
+            self.data_source_var.set(f"Data: default ({os.path.basename(self.data_dir)})")
+        else:
+            self.data_source_var.set("Data: default (not found)")
+
     # ------------------------------------------------------------------
     # Toolbar
     # ------------------------------------------------------------------
@@ -88,22 +146,22 @@ class SpectralUnmixingApp(tk.Tk):
             toolbar, text="📂 Select Root Folder", command=self._on_select_folder,
         ).pack(side=tk.LEFT, padx=(0, 8))
 
+        ttk.Button(
+            toolbar, text="🧪 Select Data Folder", command=self._on_select_data_folder,
+        ).pack(side=tk.LEFT, padx=(0, 8))
+
+        ttk.Button(
+            toolbar, text="🔄 Use Default Data", command=self._on_reset_data_folder,
+        ).pack(side=tk.LEFT, padx=(0, 8))
+
         self.chrom_mb = ttk.Menubutton(toolbar, text="Chromophores")
         self.chrom_menu = tk.Menu(self.chrom_mb, tearoff=False)
         self.chrom_mb.configure(menu=self.chrom_menu)
         self.chrom_mb.pack(side=tk.LEFT, padx=(0, 8))
 
-        self.chrom_vars = {}
-        if self.data_dir:
-            chrom_spectra = loader.load_chromophore_spectra(self.data_dir)
-            for c in chrom_spectra.keys():
-                var = tk.BooleanVar(value=True)
-                self.chrom_vars[c] = var
-                self.chrom_menu.add_checkbutton(label=c, variable=var)
-
         self.background_var = tk.BooleanVar(value=True)
-        self.chrom_menu.add_separator()
-        self.chrom_menu.add_checkbutton(label="Background", variable=self.background_var)
+        self.chrom_vars = {}
+        self._refresh_chromophore_menu()
 
         # Solver selection dropdown
         ttk.Label(toolbar, text="Solver:").pack(side=tk.LEFT, padx=(8, 4))
@@ -135,6 +193,12 @@ class SpectralUnmixingApp(tk.Tk):
 
         self.progress = ttk.Progressbar(toolbar, length=200, mode="determinate")
         self.progress.pack(side=tk.LEFT, padx=(8, 8))
+
+        default_data = (
+            f"Data: default ({os.path.basename(self.data_dir)})" if self.data_dir else "Data: default (not found)"
+        )
+        self.data_source_var = tk.StringVar(value=default_data)
+        ttk.Label(toolbar, textvariable=self.data_source_var).pack(side=tk.LEFT, padx=(8, 12))
 
         self.status_var = tk.StringVar(value="No folder selected")
         ttk.Label(toolbar, textvariable=self.status_var).pack(side=tk.LEFT)
@@ -228,6 +292,14 @@ class SpectralUnmixingApp(tk.Tk):
     def _run_pipeline(self):
         """Background processing pipeline."""
         try:
+            # Validate data_dir before starting
+            if not self.data_dir:
+                raise FileNotFoundError("No data folder selected. Please select a valid data folder.")
+            try:
+                loader.validate_data_directory(self.data_dir)
+            except (FileNotFoundError, ValueError) as e:
+                raise RuntimeError(f"Invalid data folder: {e}")
+
             info = self.folder_info
             wls = info["wavelengths"]
 
