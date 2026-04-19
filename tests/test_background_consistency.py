@@ -5,9 +5,12 @@ import unittest
 import numpy as np
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent / 'app'))
-from core import processing
-from core import io
+PROJECT_ROOT = Path(__file__).parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from app.core import processing
+from app.core import io
 
 
 class TestBackgroundConsistency(unittest.TestCase):
