@@ -1,6 +1,6 @@
 # Spectral Unmixing Application
 
-[![Download](https://img.shields.io/badge/Download-Windows%20.exe-blue)](https://github.com/mkuziuk/spectral-unmixing/releases/latest)
+[![Download Latest Release](https://img.shields.io/badge/Download-Latest%20Release-blue?style=for-the-badge&logo=github)](https://github.com/mkuziuk/spectral-unmixing/releases/latest)
 
 <div align="center">
 <img src="assets/before_unmixing.png" alt="Before Unmixing" width="45%"/>
@@ -203,4 +203,3 @@ custom_data_folder/
 | `Required directory 'chromophores/' not found` | Missing chromophores directory | Create `chromophores/` and add `.csv` files |
 | `Directory 'chromophores/' contains no .csv files` | Empty chromophores directory | Add at least one `.csv` file with extinction coefficients |
 | `LED {wl} nm not found in ...` | Wavelength mismatch | Ensure LED wavelengths in `leds_emission.csv` match your image cube filenames |
-
