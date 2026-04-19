@@ -18,6 +18,93 @@ import rawpy
 
 
 # ---------------------------------------------------------------------------
+# Validation
+# ---------------------------------------------------------------------------
+
+def validate_data_directory(data_dir: str) -> None:
+    """
+    Validate that the data directory contains required files and folders.
+
+    Required items:
+        - leds_emission.csv
+        - penetration_depth*.csv (at least one, including penetration_depth_digitized.csv)
+        - chromophores/ directory with at least one .csv file
+
+    Parameters
+    ----------
+    data_dir : str
+        Path to the data directory to validate.
+
+    Raises
+    ------
+    FileNotFoundError
+        If required files or directories are missing.
+    ValueError
+        If the chromophores directory exists but contains no CSV files.
+    """
+    # Check leds_emission.csv
+    leds_path = os.path.join(data_dir, "leds_emission.csv")
+    if not os.path.isfile(leds_path):
+        raise FileNotFoundError(
+            f"Required file 'leds_emission.csv' not found in {data_dir}"
+        )
+
+    # Check penetration_depth*.csv (wildcard support)
+    penetration_files = [
+        f for f in os.listdir(data_dir)
+        if f.startswith("penetration_depth") and f.endswith(".csv") and os.path.isfile(os.path.join(data_dir, f))
+    ]
+    if not penetration_files:
+        raise FileNotFoundError(
+            f"Required file 'penetration_depth*.csv' not found in {data_dir}"
+        )
+
+    # Check chromophores directory
+    chrom_dir = os.path.join(data_dir, "chromophores")
+    if not os.path.isdir(chrom_dir):
+        raise FileNotFoundError(
+            f"Required directory 'chromophores/' not found in {data_dir}"
+        )
+    chrom_files = [f for f in os.listdir(chrom_dir) if f.endswith(".csv") and not f.startswith(".")]
+    if not chrom_files:
+        raise ValueError(
+            f"Directory 'chromophores/' in {data_dir} contains no .csv files"
+        )
+
+
+def _find_penetration_depth_file(data_dir: str) -> str:
+    """
+    Find penetration depth file with deterministic selection.
+
+    Priority:
+        1. penetration_depth_digitized.csv (exact match)
+        2. Lexicographically first penetration_depth*.csv
+
+    Parameters
+    ----------
+    data_dir : str
+        Path to the data directory.
+
+    Returns
+    -------
+    str
+        Absolute path to the selected penetration depth file.
+    """
+    all_files = [
+        f for f in os.listdir(data_dir)
+        if f.startswith("penetration_depth") and f.endswith(".csv") and os.path.isfile(os.path.join(data_dir, f))
+    ]
+    
+    # Prefer exact match
+    exact = os.path.join(data_dir, "penetration_depth_digitized.csv")
+    if exact in [os.path.join(data_dir, f) for f in all_files]:
+        return exact
+    
+    # Otherwise lexicographically first
+    return os.path.join(data_dir, sorted(all_files)[0])
+
+
+# ---------------------------------------------------------------------------
 # Folder detection
 # ---------------------------------------------------------------------------
 
@@ -267,11 +354,19 @@ def load_penetration_depth(data_dir: str):
     """
     Load penetration depth / pathlength data.
 
+    Loads from penetration_depth_digitized.csv if present, otherwise
+    loads from the lexicographically first penetration_depth*.csv file.
+
+    Parameters
+    ----------
+    data_dir : str
+        Path to the data directory.
+
     Returns
     -------
     wavelengths : np.ndarray
     depths : np.ndarray
     """
-    path = os.path.join(data_dir, "penetration_depth_digitized.csv")
+    path = _find_penetration_depth_file(data_dir)
     wls, depths = _load_two_column_csv(path)
     return np.asarray(wls), np.asarray(depths)
