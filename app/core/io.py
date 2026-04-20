@@ -14,7 +14,10 @@ import re
 import numpy as np
 from PIL import Image
 import csv
-import rawpy
+try:
+    import rawpy
+except ModuleNotFoundError:  # pragma: no cover - environment dependent
+    rawpy = None
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +220,11 @@ def _load_image_as_grayscale(path: str) -> np.ndarray:
     ext = os.path.splitext(path)[1].lower()
     
     if ext == '.dng':
+        if rawpy is None:
+            raise ImportError(
+                "rawpy is required to load .dng images. "
+                "Install optional dependency 'rawpy' or use non-DNG inputs."
+            )
         # Load DNG using rawpy
         with rawpy.imread(path) as raw:
             # Postprocess to get RGB image

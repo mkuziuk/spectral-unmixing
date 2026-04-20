@@ -153,6 +153,13 @@ The application requires **Python 3.8+** and utilizes standard scientific and in
 ### Troubleshooting
 If UI windows fail to appear, ensure that your OS graphics packages correctly bind Python `tkinter`. Linux machines often decouple UI bindings (`python3-tk` or `python-tkinter` depending upon RPM/Deb distributions). For macOS, native homebrew `python` typically packages tk implementations inherently.
 
+### Launch Modes (QT Cutover)
+
+- **Default**: `python app/main.py` starts the **PySide6 (Qt)** UI.
+- **Rollback (legacy tkinter)**:
+  - CLI flag: `python app/main.py --legacy-tk`
+  - Environment variable: `SPECTRAL_UNMIXING_LEGACY_TK=1 python app/main.py`
+
 ## Custom Data Folder Support
 
 ### Folder Structure Requirements

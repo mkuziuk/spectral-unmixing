@@ -1,8 +1,18 @@
 """
 Visualization panel — displays chromophore maps, derived maps, and raw/reflectance/OD images.
 
+DEPRECATED: Retained only for the ``--legacy-tk`` rollback path.
+Use ``app.gui_qt.panels.maps_panel`` for the default PySide6 UI.
+
 Uses matplotlib FigureCanvasTkAgg embedded in a tkinter frame.
 """
+
+import warnings
+warnings.warn(
+    "app.gui.viz_panel is deprecated; use app.gui_qt.panels.maps_panel.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import tkinter as tk
 from tkinter import ttk

@@ -1,6 +1,9 @@
 """
 Main application window — tkinter-based GUI for spectral unmixing.
 
+DEPRECATED: This module is retained only for the ``--legacy-tk`` rollback path.
+All new GUI development should target ``app.gui_qt``.
+
 Layout:
     ┌──────────────────────────────────────────────┐
     │  Toolbar (folder picker, run, save)          │
@@ -11,6 +14,13 @@ Layout:
     │            │  - Tab: Diagnostics             │
     └────────────┴─────────────────────────────────┘
 """
+
+import warnings
+warnings.warn(
+    "app.gui.app_window is deprecated; use app.gui_qt for the default PySide6 UI.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox

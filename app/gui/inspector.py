@@ -1,12 +1,22 @@
 """
 Pixel Inspector panel — click on an image to see per-pixel spectral data.
 
+DEPRECATED: Retained only for the ``--legacy-tk`` rollback path.
+Use ``app.gui_qt.panels.inspector_panel`` for the default PySide6 UI.
+
 Shows:
 - Measured OD spectrum (bar chart)
 - Fitted OD spectrum (overlaid)
 - Residual
 - Estimated concentrations (table)
 """
+
+import warnings
+warnings.warn(
+    "app.gui.inspector is deprecated; use app.gui_qt.panels.inspector_panel.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import tkinter as tk
 from tkinter import ttk
