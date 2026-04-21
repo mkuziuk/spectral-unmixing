@@ -35,6 +35,12 @@ CORE_TOOLBAR_OBJECT_NAMES = [
     "chromophore_menu",
     "solver_combo",
     "bg_entry",
+    "scattering_toolbar",
+    "scattering_lambda0_entry",
+    "scattering_mu_s_500_entry",
+    "scattering_power_entry",
+    "scattering_lipofundin_entry",
+    "scattering_anisotropy_entry",
     "run_btn",
     "save_btn",
 ]

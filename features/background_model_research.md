@@ -157,6 +157,54 @@ Relevant sources:
 - Modified Beer-Lambert limitations  
   https://pubmed.ncbi.nlm.nih.gov/16481677/
 
+### 6. Alternative Physical Route: Fix `μs'(λ)`, Recover `μa(λ)`, Then Unmix Chromophores
+
+Another method is to stop fitting a free background term entirely and instead use a fixed reduced-scattering prior.
+
+Using the user-provided diffuse-reflectance relation:
+
+```text
+OD(λ) = μa(λ) / sqrt(3 μa(λ) (μa(λ) + μs'(λ)))
+      = 1 / sqrt(3 (1 + μs'(λ) / μa(λ)))
+```
+
+and assuming `μs'(λ)` is known, solve explicitly for absorption:
+
+```text
+μa(λ) = 3 μs'(λ) OD(λ)^2 / (1 - 3 OD(λ)^2)
+```
+
+Then estimate chromophore concentrations from the usual linear absorption model:
+
+```text
+μa(λ) = Σ_k c_k ε_k(λ)
+```
+
+For the scattering prior, the user-provided Lipofundin model is:
+
+```text
+μs(λ) = μs,500 (λ / 500)^(-b) * f_lipo
+μs'(λ) = μs(λ) (1 - g)
+```
+
+with example parameters:
+
+- `μs,500 = 120 cm^-1`
+- `b = 1.0`
+- `f_lipo = 0.25`
+- `g = 0.8`
+
+Implication for this repo:
+
+- the current constant background column disappears
+- scattering is treated as a fixed physical prior, not a free nuisance coefficient
+- the inversion becomes two-stage:
+  1. compute `μs'(λ)`
+  2. convert measured `OD(λ)` to `μa(λ)`
+  3. solve `μa(λ) ≈ Σ_k c_k ε_k(λ)` for chromophore concentrations
+
+This is a different modeling choice from Option B. It is more physical than a generic background basis, but also more sensitive to model mismatch.
+
 ## Recommendation For This Repo
 
 ### Recommended Path
@@ -287,6 +335,36 @@ Cons:
 - output semantics change substantially
 - likely not appropriate if the goal is concentration-like maps
 
+### Option E: Fixed-Scattering Inversion To `μa`
+
+Model idea:
+
+```text
+OD(λ) + known μs'(λ) -> μa(λ)
+μa(λ) ≈ E(λ) c
+```
+
+where:
+
+```text
+μa(λ) = 3 μs'(λ) OD(λ)^2 / (1 - 3 OD(λ)^2)
+```
+
+and `E(λ)` is the chromophore extinction matrix.
+
+Pros:
+
+- removes the non-identifiable constant background term entirely
+- uses a physically interpretable scattering prior
+- keeps the chromophore step linear after `μa` is reconstructed
+
+Cons:
+
+- only valid if the OD definition in this repo matches the OD used in the derivation
+- becomes unstable as `3 OD(λ)^2 -> 1`
+- errors in assumed `μs'(λ)` directly bias the recovered concentrations
+- with broad LED bands, `μs'(λ)` and `ε(λ)` should likely be band-averaged, not sampled at one wavelength
+
 ## Practical Constraint For This Dataset
 
 Your system appears to use a small number of LED bands. That means the nuisance/background model must remain low-dimensional.
@@ -309,6 +387,8 @@ Implement **Option B** first:
 
 After that, if the behavior is promising, move toward **Option C** and make the parameter scattering-based instead of generic background-based.
 
+If you already trust the fixed Lipofundin scattering prior, **Option E** is also worth testing as a separate branch: reconstruct `μa` first, then fit chromophore concentrations without any background column.
+
 ## Summary
 
 The current background term fails because it is a single constant column whose scale can always be canceled by the fitted coefficient. To make background matter, the model must change so that background has:
@@ -324,3 +404,7 @@ The most practical near-term solution for this repo is:
 The most physically meaningful long-term solution is:
 
 - **explicit scattering model**
+
+A more aggressive physical alternative is:
+
+- **fixed-scattering inversion to `μa`, followed by chromophore unmixing**

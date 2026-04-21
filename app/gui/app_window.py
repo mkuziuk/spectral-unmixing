@@ -53,6 +53,7 @@ class SpectralUnmixingApp(tk.Tk):
         self.data_dir = self._find_data_dir()
         self.results = {}  # sample_name → result dict
         self._default_data_dir = self.data_dir  # Store default for reset
+        self._scattering_params = processing.get_default_scattering_parameters()
 
         # ---- Build UI ----
         self._build_toolbar()
@@ -176,20 +177,22 @@ class SpectralUnmixingApp(tk.Tk):
         # Solver selection dropdown
         ttk.Label(toolbar, text="Solver:").pack(side=tk.LEFT, padx=(8, 4))
         self.solver_var = tk.StringVar(value="ls")
-        solver_combo = ttk.Combobox(
+        self.solver_combo = ttk.Combobox(
             toolbar,
             textvariable=self.solver_var,
-            values=["ls", "nnls"],
+            values=["ls", "nnls", "mu_a"],
             state="readonly",
             width=8,
         )
-        solver_combo.pack(side=tk.LEFT, padx=(0, 8))
+        self.solver_combo.pack(side=tk.LEFT, padx=(0, 8))
+        self.solver_combo.bind("<<ComboboxSelected>>", self._on_solver_method_changed)
 
         # Background value input
-        ttk.Label(toolbar, text="Background:").pack(side=tk.LEFT, padx=(8, 4))
+        self.background_label = ttk.Label(toolbar, text="Background:")
+        self.background_label.pack(side=tk.LEFT, padx=(8, 4))
         self.background_value_var = tk.StringVar(value="2500.0")
-        bg_entry = ttk.Entry(toolbar, textvariable=self.background_value_var, width=8)
-        bg_entry.pack(side=tk.LEFT, padx=(0, 8))
+        self.bg_entry = ttk.Entry(toolbar, textvariable=self.background_value_var, width=8)
+        self.bg_entry.pack(side=tk.LEFT, padx=(0, 8))
 
         self.run_btn = ttk.Button(
             toolbar, text="▶ Run Unmixing", command=self._on_run, state=tk.DISABLED,
@@ -212,6 +215,60 @@ class SpectralUnmixingApp(tk.Tk):
 
         self.status_var = tk.StringVar(value="No folder selected")
         ttk.Label(toolbar, textvariable=self.status_var).pack(side=tk.LEFT)
+
+        self.scattering_frame = ttk.Frame(self, padding=(12, 0, 12, 6))
+
+        ttk.Label(self.scattering_frame, text="Fixed scattering:").pack(side=tk.LEFT, padx=(0, 8))
+
+        self.lambda0_var = tk.StringVar(value=str(self._scattering_params["lambda0_nm"]))
+        ttk.Label(self.scattering_frame, text="lambda0 (nm):").pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Entry(self.scattering_frame, textvariable=self.lambda0_var, width=8).pack(side=tk.LEFT, padx=(0, 8))
+
+        self.mu_s_500_var = tk.StringVar(value=str(self._scattering_params["mu_s_500_cm1"]))
+        ttk.Label(self.scattering_frame, text="mu_s_500 (cm^-1):").pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Entry(self.scattering_frame, textvariable=self.mu_s_500_var, width=8).pack(side=tk.LEFT, padx=(0, 8))
+
+        self.power_b_var = tk.StringVar(value=str(self._scattering_params["power_b"]))
+        ttk.Label(self.scattering_frame, text="b:").pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Entry(self.scattering_frame, textvariable=self.power_b_var, width=8).pack(side=tk.LEFT, padx=(0, 8))
+
+        self.lipofundin_var = tk.StringVar(value=str(self._scattering_params["lipofundin_fraction"]))
+        ttk.Label(self.scattering_frame, text="lipo frac:").pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Entry(self.scattering_frame, textvariable=self.lipofundin_var, width=8).pack(side=tk.LEFT, padx=(0, 8))
+
+        self.anisotropy_var = tk.StringVar(value=str(self._scattering_params["anisotropy_g"]))
+        ttk.Label(self.scattering_frame, text="g:").pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Entry(self.scattering_frame, textvariable=self.anisotropy_var, width=8).pack(side=tk.LEFT, padx=(0, 8))
+
+        self._update_solver_dependent_controls()
+
+    def _on_solver_method_changed(self, _event=None):
+        """Update solver-specific controls when the combobox changes."""
+        self._update_solver_dependent_controls()
+
+    def _update_solver_dependent_controls(self):
+        """Show fixed-scattering controls only for the mu_a solver."""
+        use_mu_a = self.solver_var.get() == "mu_a"
+
+        if use_mu_a:
+            self.scattering_frame.pack(side=tk.TOP, fill=tk.X)
+            self.bg_entry.state(["disabled"])
+        else:
+            self.scattering_frame.pack_forget()
+            self.bg_entry.state(["!disabled"])
+
+    def _read_scattering_params_from_ui(self):
+        """Read and validate fixed-scattering parameters from the Tk controls."""
+        raw = {
+            "lambda0_nm": self.lambda0_var.get().strip(),
+            "mu_s_500_cm1": self.mu_s_500_var.get().strip(),
+            "power_b": self.power_b_var.get().strip(),
+            "lipofundin_fraction": self.lipofundin_var.get().strip(),
+            "anisotropy_g": self.anisotropy_var.get().strip(),
+        }
+        validated = processing.validate_scattering_parameters(raw)
+        self._scattering_params = validated
+        return dict(validated)
 
     # ------------------------------------------------------------------
     # Main area: sidebar + notebook
@@ -328,21 +385,41 @@ class SpectralUnmixingApp(tk.Tk):
             include_background = self.background_var.get()
             solver_method = self.solver_var.get()
 
-            # Parse background value
-            try:
-                bg_value = float(self.background_value_var.get())
-            except ValueError:
-                raise ValueError("Background value must be a number.")
-
             if not selected_chroms and not include_background:
                 raise ValueError("No components selected for unmixing.")
 
-            A, chrom_names = processing.build_overlap_matrix(
-                led_wl, led_em, chrom_spectra, pen_wl, pen_depth, wls,
-                chromophore_names=selected_chroms,
-                include_background=include_background,
-                background_value=bg_value,
-            )
+            mus_prime = None
+            scattering_parameters = None
+            if solver_method == "mu_a":
+                bg_value = float(self.background_value_var.get() or 2500.0)
+                include_background = False
+                if not selected_chroms:
+                    raise ValueError("Select at least one chromophore for the mu_a solver.")
+                scattering_parameters = self._read_scattering_params_from_ui()
+                A, chrom_names = processing.build_absorption_matrix(
+                    led_wl,
+                    led_em,
+                    chrom_spectra,
+                    wls,
+                    chromophore_names=selected_chroms,
+                )
+                mus_prime = processing.build_fixed_scattering_profile(
+                    led_wl,
+                    led_em,
+                    wls,
+                    **scattering_parameters,
+                )
+            else:
+                try:
+                    bg_value = float(self.background_value_var.get())
+                except ValueError:
+                    raise ValueError("Background value must be a number.")
+                A, chrom_names = processing.build_overlap_matrix(
+                    led_wl, led_em, chrom_spectra, pen_wl, pen_depth, wls,
+                    chromophore_names=selected_chroms,
+                    include_background=include_background,
+                    background_value=bg_value,
+                )
 
             n_samples = len(info["samples"])
             self.results.clear()
@@ -364,7 +441,12 @@ class SpectralUnmixingApp(tk.Tk):
                 od_cube = processing.compute_optical_density(reflectance)
 
                 # Unmixing
-                concentrations, rmse_map, fitted_od = processing.solve_unmixing(od_cube, A, method=solver_method)
+                concentrations, rmse_map, fitted_od = processing.solve_unmixing(
+                    od_cube,
+                    A,
+                    method=solver_method,
+                    mus_prime=mus_prime,
+                )
 
                 # Derived maps
                 derived = processing.compute_derived_maps(concentrations, chrom_names)
@@ -385,6 +467,7 @@ class SpectralUnmixingApp(tk.Tk):
                     "chromophore_names": chrom_names,
                     "include_background": include_background,
                     "background_value": bg_value,
+                    "scattering_parameters": scattering_parameters,
                     "solver_method": solver_method,
                     "wavelengths": wls,
                 }
