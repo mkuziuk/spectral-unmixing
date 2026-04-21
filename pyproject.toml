@@ -1,6 +1,6 @@
 [project]
 name = "spectral-unmixing"
-version = "0.1.0"
+version = "0.2.0"
 description = "A biomedical hyperspectral unmixing application"
 authors = [
     { name = "Mikhail", email = "mikhail@example.com" }

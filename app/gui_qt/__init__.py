@@ -5,4 +5,4 @@ at module load time.  ImportError is raised only when a class is
 instantiated and the required dependency is unavailable.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
