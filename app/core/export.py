@@ -59,12 +59,12 @@ def save_results(
     # --- Save derived maps ---
     for name, data in derived.items():
         vmin, vmax = derived_scales.get(name, (None, None)) if derived_scales else (None, None)
-        _save_map_png(data, name, name, maps_dir, vmin=vmin, vmax=vmax)
+        _save_map_png(data, _format_map_title(name, data), name, maps_dir, vmin=vmin, vmax=vmax)
         np.save(os.path.join(arrays_dir, f"{name}.npy"), data)
 
     # --- Save RMSE map ---
     vmin, vmax = derived_scales.get("RMSE", (None, None)) if derived_scales else (None, None)
-    _save_map_png(rmse_map, "RMSE", "RMSE", maps_dir, cmap="hot", vmin=vmin, vmax=vmax)
+    _save_map_png(rmse_map, _format_map_title("RMSE", rmse_map), "RMSE", maps_dir, cmap="hot", vmin=vmin, vmax=vmax)
     np.save(os.path.join(arrays_dir, "RMSE.npy"), rmse_map)
 
     # --- Save metadata ---
@@ -105,3 +105,14 @@ def _save_map_png(
         dpi=150, bbox_inches="tight",
     )
     plt.close(fig)
+
+
+def _format_map_title(name: str, data: np.ndarray) -> str:
+    """Format map title with finite-value mean and median statistics."""
+    finite = data[np.isfinite(data)]
+    if finite.size == 0:
+        return name
+
+    mean_val = float(finite.mean())
+    median_val = float(np.median(finite))
+    return f"{name}\nμ={mean_val:.3e}, med={median_val:.3e}"

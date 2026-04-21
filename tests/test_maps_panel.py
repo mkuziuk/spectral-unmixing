@@ -262,6 +262,11 @@ def _axes_with_images(fig):
     return result
 
 
+def _title_name(ax):
+    """Return the first line of a subplot title."""
+    return ax.get_title().split("\n", 1)[0]
+
+
 # -- set_data functional tests -----------------------------------------------
 
 
@@ -368,7 +373,8 @@ def test_show_results_infers_background_component_for_display(maps_panel):
     titles = {ax.get_title() for ax in image_axes}
 
     assert len(image_axes) == 3
-    assert titles == {"HbO2", "Hb", "Background"}
+    assert {_title_name(ax) for ax in image_axes} == {"HbO2", "Hb", "Background"}
+    assert all("μ=" in title and "med=" in title for title in titles)
 
 
 def test_show_results_supports_background_only_display(maps_panel):
@@ -383,7 +389,8 @@ def test_show_results_supports_background_only_display(maps_panel):
     image_axes = _axes_with_images(fig)
 
     assert len(image_axes) == 1
-    assert image_axes[0].get_title() == "Background"
+    assert _title_name(image_axes[0]) == "Background"
+    assert "μ=" in image_axes[0].get_title()
 
 
 def test_show_results_none_clears(maps_panel):
@@ -493,7 +500,9 @@ def test_chromophore_view_renders_all_maps(maps_panel):
 
     # Verify each chromophore name appears as a title
     titles = {ax.get_title() for ax in image_axes}
-    assert titles == {"HbO2", "Hb", "Background", "Water", "Lipid"}
+    base_titles = {_title_name(ax) for ax in image_axes}
+    assert base_titles == {"HbO2", "Hb", "Background", "Water", "Lipid"}
+    assert all("μ=" in title and "med=" in title for title in titles)
 
 
 def test_chromophore_view_grid_layout(maps_panel):
@@ -535,7 +544,8 @@ def test_chromophore_view_single_map(maps_panel):
     fig = maps_panel._canvas.figure
     image_axes = _axes_with_images(fig)
     assert len(image_axes) == 1
-    assert image_axes[0].get_title() == "HbO2"
+    assert _title_name(image_axes[0]) == "HbO2"
+    assert "μ=" in image_axes[0].get_title()
 
 
 def test_derived_view_renders_all_maps(maps_panel):
@@ -561,7 +571,8 @@ def test_derived_view_renders_all_maps(maps_panel):
     assert len(image_axes) == 3
 
     titles = {ax.get_title() for ax in image_axes}
-    assert titles == {"THb", "StO2", "RMSE"}
+    assert {_title_name(ax) for ax in image_axes} == {"THb", "StO2", "RMSE"}
+    assert all("μ=" in title and "med=" in title for title in titles)
 
 
 def test_derived_view_two_maps(maps_panel):
@@ -609,6 +620,7 @@ def test_raw_view_renders_reflectance_and_od(maps_panel):
     assert any("Raw" in t for t in titles)
     assert any("Reflectance" in t for t in titles)
     assert any("Optical Density" in t for t in titles)
+    assert all("μ=" in t and "med=" in t for t in titles)
 
 
 def test_raw_view_reflectance_only(maps_panel):
@@ -631,6 +643,7 @@ def test_raw_view_reflectance_only(maps_panel):
     titles = [ax.get_title() for ax in image_axes]
     assert any("Raw" in t for t in titles)
     assert any("Reflectance" in t for t in titles)
+    assert all("μ=" in t and "med=" in t for t in titles)
 
 
 def test_raw_view_od_only(maps_panel):
@@ -651,6 +664,7 @@ def test_raw_view_od_only(maps_panel):
     # Raw (from OD) + OD = 2 panels
     assert len(image_axes) == 2
     assert any("Optical Density" in ax.get_title() for ax in image_axes)
+    assert all("μ=" in ax.get_title() and "med=" in ax.get_title() for ax in image_axes)
 
 
 # -- band combo enabled/disabled per view mode -------------------------------

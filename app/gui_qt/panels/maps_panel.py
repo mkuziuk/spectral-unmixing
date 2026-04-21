@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
+
 if TYPE_CHECKING:  # pragma: no cover
     from PySide6.QtWidgets import QWidget
 
@@ -315,7 +317,7 @@ class MapsPanel:
 
             ax = fig.add_subplot(nrows, ncols, idx + 1)
             im = ax.imshow(data, cmap="viridis", origin="lower")
-            ax.set_title(f"{name}")
+            ax.set_title(self._format_map_title(name, data))
             ax.set_axis_off()
             fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
@@ -339,7 +341,7 @@ class MapsPanel:
 
             ax = fig.add_subplot(1, n_derived, idx + 1)
             im = ax.imshow(data, cmap="viridis", origin="lower")
-            ax.set_title(f"{name}")
+            ax.set_title(self._format_map_title(name, data))
             ax.set_axis_off()
             fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
@@ -399,7 +401,7 @@ class MapsPanel:
                 ax.set_title(title)
                 continue
             im = ax.imshow(data, cmap="gray", origin="lower")
-            ax.set_title(title)
+            ax.set_title(self._format_map_title(title, data))
             ax.set_axis_off()
             fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
@@ -425,6 +427,17 @@ class MapsPanel:
                 for idx in range(len(names), conc_shape[2])
             )
         return names[: conc_shape[2]]
+
+    @staticmethod
+    def _format_map_title(name: str, data: Any) -> str:
+        """Format subplot title with nan-safe mean and median statistics."""
+        finite = np.asarray(data)[np.isfinite(data)]
+        if finite.size == 0:
+            return name
+
+        mean_val = float(finite.mean())
+        median_val = float(np.median(finite))
+        return f"{name}\nμ={mean_val:.3e}, med={median_val:.3e}"
 
 
 # ---------------------------------------------------------------------------
