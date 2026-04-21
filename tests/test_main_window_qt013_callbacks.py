@@ -149,11 +149,12 @@ def test_sample_selection_triggers_panel_refresh(window, monkeypatch, qapp):
 
     window._results = {"A": sample_a, "B": sample_b}
 
-    calls = {"maps": [], "inspector": [], "diag": [], "stats": []}
+    calls = {"maps": [], "inspector": [], "diag": [], "stats": [], "barcharts": []}
     monkeypatch.setattr(window._maps_panel, "show_results", lambda data: calls["maps"].append(data))
     monkeypatch.setattr(window._inspector_panel, "set_data", lambda data: calls["inspector"].append(data))
     monkeypatch.setattr(window._diagnostics_panel, "set_data", lambda data: calls["diag"].append(data))
     monkeypatch.setattr(window._stats_panel, "set_data", lambda data: calls["stats"].append(data))
+    monkeypatch.setattr(window._barcharts_panel, "set_data", lambda data: calls["barcharts"].append(data))
 
     window.set_samples(["A", "B"])
     qapp.processEvents()
@@ -168,6 +169,7 @@ def test_sample_selection_triggers_panel_refresh(window, monkeypatch, qapp):
     assert calls["maps"] == [sample_b]
     assert calls["inspector"] == [sample_b]
     assert calls["stats"] == [sample_b]
+    assert calls["barcharts"] == [window._results]
     assert calls["diag"][0]["diagnostics"]["warnings"] == ["high RMSE"]
 
     warnings_text = window._impl.findChild(QTextEdit, WARNINGS_TEXT_OBJECT_NAME)

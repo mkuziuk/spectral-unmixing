@@ -204,16 +204,17 @@ class TestSplitterShell(unittest.TestCase):
         self.assertEqual(tabs.objectName(), TAB_WIDGET_OBJECT_NAME)
 
     def test_tab_count(self):
-        """Tab widget must have exactly four tabs."""
+        """Tab widget must have exactly five tabs."""
         from app.gui_qt.main_window import SpectralUnmixingMainWindow
         window = SpectralUnmixingMainWindow()
         central = window._impl.centralWidget()
         tabs = central.widget(1)
-        self.assertEqual(tabs.count(), 4)
+        self.assertEqual(tabs.count(), 5)
 
     def test_tab_order(self):
         """Tab labels must be in the exact required order."""
         from app.gui_qt.main_window import (
+            BAR_CHARTS_TAB_LABEL,
             DIAGNOSTICS_TAB_LABEL,
             INSPECTOR_TAB_LABEL,
             MAPS_TAB_LABEL,
@@ -221,13 +222,20 @@ class TestSplitterShell(unittest.TestCase):
         )
         central = self.impl.centralWidget()
         tabs = central.widget(1)
-        expected = [MAPS_TAB_LABEL, INSPECTOR_TAB_LABEL, DIAGNOSTICS_TAB_LABEL, STATS_TAB_LABEL]
+        expected = [
+            MAPS_TAB_LABEL,
+            INSPECTOR_TAB_LABEL,
+            DIAGNOSTICS_TAB_LABEL,
+            STATS_TAB_LABEL,
+            BAR_CHARTS_TAB_LABEL,
+        ]
         actual = [tabs.tabText(i) for i in range(tabs.count())]
         self.assertEqual(actual, expected)
 
     def test_tab_object_names(self):
         """Each tab widget must have its stable objectName."""
         from app.gui_qt.main_window import (
+            BAR_CHARTS_TAB_OBJECT_NAME,
             DIAGNOSTICS_TAB_OBJECT_NAME,
             INSPECTOR_TAB_OBJECT_NAME,
             MAPS_TAB_OBJECT_NAME,
@@ -240,6 +248,7 @@ class TestSplitterShell(unittest.TestCase):
             INSPECTOR_TAB_OBJECT_NAME,
             DIAGNOSTICS_TAB_OBJECT_NAME,
             STATS_TAB_OBJECT_NAME,
+            BAR_CHARTS_TAB_OBJECT_NAME,
         ]
         for i, expected_name in enumerate(expected_names):
             child = tabs.widget(i)

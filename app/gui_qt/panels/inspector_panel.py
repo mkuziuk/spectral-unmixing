@@ -346,34 +346,33 @@ class InspectorPanel:
         fitted = fitted_od[row, col, :]
         residual = measured - fitted
 
+        x = np.arange(measured.shape[0], dtype=float)
         wavelengths = self._as_array(self._data.get("wavelengths"))
         if wavelengths is None or wavelengths.ndim != 1 or wavelengths.shape[0] != measured.shape[0]:
-            x = np.arange(measured.shape[0])
-            x_tick_labels = [str(i) for i in x]
+            x_tick_labels = [str(int(idx)) for idx in x]
             x_axis_label = "Band index"
         else:
-            x = wavelengths
             x_tick_labels = [str(int(w)) if float(w).is_integer() else str(float(w)) for w in wavelengths]
             x_axis_label = "LED wavelength (nm)"
 
-        bar_w = 0.35
+        bar_w = 0.38
         ax1.bar(x - bar_w / 2, measured, bar_w, label="Measured OD", color="#4C72B0")
         ax1.bar(x + bar_w / 2, fitted, bar_w, label="Fitted OD", color="#DD8452")
         ax1.set_ylabel("OD")
         ax1.set_title(f"Pixel ({row}, {col}) — OD Spectrum", fontsize=10)
         ax1.legend(fontsize=8)
 
-        if np.asarray(x).ndim == 1 and len(x_tick_labels) <= 12:
+        if len(x_tick_labels) <= 12:
             ax1.set_xticks(x)
             ax1.set_xticklabels(x_tick_labels, fontsize=8)
 
         colors = ["#55A868" if r >= 0 else "#C44E52" for r in residual]
-        ax2.bar(x, residual, color=colors)
+        ax2.bar(x, residual, width=0.65, color=colors)
         ax2.axhline(0, color="gray", linewidth=0.5)
         ax2.set_ylabel("Residual")
         ax2.set_xlabel(x_axis_label)
 
-        if np.asarray(x).ndim == 1 and len(x_tick_labels) <= 12:
+        if len(x_tick_labels) <= 12:
             ax2.set_xticks(x)
             ax2.set_xticklabels(x_tick_labels, fontsize=8)
 

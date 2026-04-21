@@ -186,3 +186,26 @@ def test_qt015_click_renders_crosshair_and_spectra(inspector_panel, qapp_instanc
     assert len(spec_fig.axes[0].lines) == 0, "Top subplot should NOT have line artists (use bar charts)"
     # Bottom subplot: residual bars
     assert len(spec_fig.axes[1].patches) > 0, "Bottom subplot should have bar artists for residual"
+
+
+def test_qt015_spectra_bars_use_categorical_widths(inspector_panel, qapp_instance):
+    pytest.importorskip("matplotlib", reason="matplotlib backend unavailable")
+
+    inspector_panel.set_data(_make_mock_inspector_data())
+    inspector_panel._handle_canvas_click(x=2.0, y=1.0)
+    qapp_instance.processEvents()
+
+    spec_canvas = _find_object_by_name(inspector_panel._impl, "spec_canvas")
+    spec_fig = getattr(spec_canvas, "figure", None)
+    if spec_fig is None:
+        pytest.skip("Inspector canvas fallback active; matplotlib figure not present")
+
+    top_ax, bottom_ax = spec_fig.axes
+    top_widths = [patch.get_width() for patch in top_ax.patches]
+    bottom_widths = [patch.get_width() for patch in bottom_ax.patches]
+
+    assert top_widths
+    assert bottom_widths
+    assert min(top_widths) >= 0.35
+    assert min(bottom_widths) >= 0.6
+    assert [tick.get_text() for tick in bottom_ax.get_xticklabels()] == ["450", "500", "550", "600"]

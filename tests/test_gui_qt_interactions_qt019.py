@@ -1,7 +1,7 @@
 """QT-019: End-to-end interaction tests for key GUI flows.
 
 Covers four critical interaction flows using mocks/fakes:
-  1. Sample selection updates all panels (maps, inspector, diagnostics, stats).
+  1. Sample selection updates all panels (maps, inspector, diagnostics, stats, bar charts).
   2. View toggles and band toggles trigger maps-panel redraw path.
   3. Run / Save button state transitions through worker success and failure.
   4. Save export path is invoked only after results are available.
@@ -131,9 +131,9 @@ class TestSampleSelectionUpdatesPanels:
             "od_cube": np.full((4, 4, 2), value * 0.3),
         }
 
-    def test_selecting_sample_dispatches_to_all_four_panels(self, window, qapp):
+    def test_selecting_sample_dispatches_to_all_five_panels(self, window, qapp):
         """Choosing a sample from the combo calls show_results / set_data on
-        maps, inspector, diagnostics, and stats panels."""
+        maps, inspector, diagnostics, stats, and bar-chart panels."""
         sample_a = self._make_sample_result("A", value=1.0)
         sample_b = self._make_sample_result("B", value=2.0)
 
@@ -142,8 +142,13 @@ class TestSampleSelectionUpdatesPanels:
         qapp.processEvents()
 
         # Clear any initial callbacks from set_samples
-        for panel in [window._maps_panel, window._inspector_panel,
-                      window._diagnostics_panel, window._stats_panel]:
+        for panel in [
+            window._maps_panel,
+            window._inspector_panel,
+            window._diagnostics_panel,
+            window._stats_panel,
+            window._barcharts_panel,
+        ]:
             panel.show_results = MagicMock()
             panel.set_data = MagicMock()
 
@@ -172,6 +177,11 @@ class TestSampleSelectionUpdatesPanels:
         stats_arg = window._stats_panel.set_data.call_args[0][0]
         assert stats_arg is sample_b
 
+        # Bar-chart panel receives the full sample mapping for cross-sample comparison
+        window._barcharts_panel.set_data.assert_called_once()
+        barcharts_arg = window._barcharts_panel.set_data.call_args[0][0]
+        assert barcharts_arg is window._results
+
     def test_selecting_different_sample_updates_panels_with_new_data(self, window, qapp):
         """Switching from sample A to sample B sends B's data to all panels."""
         sample_a = self._make_sample_result("A", value=1.0)
@@ -182,8 +192,13 @@ class TestSampleSelectionUpdatesPanels:
         qapp.processEvents()
 
         # Spy on panels
-        for panel in [window._maps_panel, window._inspector_panel,
-                      window._diagnostics_panel, window._stats_panel]:
+        for panel in [
+            window._maps_panel,
+            window._inspector_panel,
+            window._diagnostics_panel,
+            window._stats_panel,
+            window._barcharts_panel,
+        ]:
             panel.show_results = MagicMock()
             panel.set_data = MagicMock()
 
@@ -195,8 +210,13 @@ class TestSampleSelectionUpdatesPanels:
         assert maps_call_b is sample_b
 
         # Clear mocks and select A
-        for panel in [window._maps_panel, window._inspector_panel,
-                      window._diagnostics_panel, window._stats_panel]:
+        for panel in [
+            window._maps_panel,
+            window._inspector_panel,
+            window._diagnostics_panel,
+            window._stats_panel,
+            window._barcharts_panel,
+        ]:
             panel.show_results.reset_mock()
             panel.set_data.reset_mock()
 
