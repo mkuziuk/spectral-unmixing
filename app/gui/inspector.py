@@ -121,7 +121,7 @@ class InspectorPanel(ttk.Frame):
         self.spec_fig.clear()
 
         x = np.arange(len(wls))
-        bar_w = 0.35
+        bar_w = 0.38
 
         # Top: measured vs fitted OD
         ax1 = self.spec_fig.add_subplot(211)
@@ -136,7 +136,7 @@ class InspectorPanel(ttk.Frame):
         # Bottom: residual
         ax2 = self.spec_fig.add_subplot(212)
         colors = ["#55A868" if r >= 0 else "#C44E52" for r in residual]
-        ax2.bar(x, residual, color=colors)
+        ax2.bar(x, residual, width=0.65, color=colors)
         ax2.set_xticks(x)
         ax2.set_xticklabels([str(w) for w in wls], fontsize=8)
         ax2.set_ylabel("Residual")
