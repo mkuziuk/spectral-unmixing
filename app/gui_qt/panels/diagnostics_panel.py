@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from app.gui_qt.mpl.canvas import MplCanvas, MplToolbar
+from app.gui_qt.mpl.canvas import MplCanvas
 
 if TYPE_CHECKING:  # pragma: no cover
     from PySide6.QtWidgets import QWidget
@@ -93,7 +93,6 @@ class DiagnosticsPanel:
             ┌─ MplCanvas with 2 subplots (diag_canvas) ───┐
             │  ax[0] : RMSE histogram  │  ax[1] : Quality mask │
             └──────────────────────────────────────────────┘
-            ┌─ NavigationToolbar2QT ───────────────────────┘
         """
         from PySide6.QtWidgets import QGroupBox, QTextEdit, QVBoxLayout
 
@@ -129,11 +128,6 @@ class DiagnosticsPanel:
         self._canvas._impl.draw()
 
         layout.addWidget(self._canvas._impl, stretch=2)
-
-        # -- navigation toolbar ----------------------------------------------
-        self._toolbar = MplToolbar(canvas=self._canvas, parent=self._impl)
-
-        layout.addWidget(self._toolbar._impl)
 
     # -- stats text population -----------------------------------------------
 

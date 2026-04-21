@@ -1,5 +1,6 @@
 numpy
 scipy
 matplotlib
+PySide6
 pillow
 rawpy

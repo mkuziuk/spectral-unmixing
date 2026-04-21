@@ -76,7 +76,7 @@ $$
 
 ## Installation Instructions
 
-The application requires **Python 3.8+** and utilizes standard scientific and interface UI libraries (`numpy`, `scipy`, `matplotlib`, `pillow`, `tkinter`).
+The application requires **Python 3.8+** and utilizes standard scientific and interface UI libraries (`numpy`, `scipy`, `matplotlib`, `pillow`, `PySide6`). The legacy rollback UI additionally relies on `tkinter`.
 
 ### Windows
 
@@ -151,7 +151,7 @@ The application requires **Python 3.8+** and utilizes standard scientific and in
    ```
 
 ### Troubleshooting
-If UI windows fail to appear, ensure that your OS graphics packages correctly bind Python `tkinter`. Linux machines often decouple UI bindings (`python3-tk` or `python-tkinter` depending upon RPM/Deb distributions). For macOS, native homebrew `python` typically packages tk implementations inherently.
+If the default Qt UI fails to launch, confirm that `PySide6` installed successfully in your active environment. If the legacy rollback UI fails to appear, ensure that your OS graphics packages correctly bind Python `tkinter`. Linux machines often decouple UI bindings (`python3-tk` or `python-tkinter` depending upon RPM/Deb distributions). For macOS, native homebrew `python` typically packages tk implementations inherently.
 
 ### Launch Modes (QT Cutover)
 

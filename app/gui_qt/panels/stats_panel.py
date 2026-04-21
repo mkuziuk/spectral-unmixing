@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from app.gui_qt.mpl.canvas import MplCanvas, MplToolbar
+from app.gui_qt.mpl.canvas import MplCanvas
 
 if TYPE_CHECKING:  # pragma: no cover
     from PySide6.QtWidgets import QWidget
@@ -20,7 +20,6 @@ OBJECT_NAME: str = "StatsPanel"
 STAT_LABEL_OBJECT_NAME: str = "stat_label"
 STAT_COMBO_OBJECT_NAME: str = "stat_combo"
 STAT_CANVAS_OBJECT_NAME: str = "stat_canvas"
-STAT_NAV_TOOLBAR_OBJECT_NAME: str = "stat_nav_toolbar"
 STAT_OPTIONS: list[str] = ["Mean", "Median"]
 
 
@@ -78,10 +77,6 @@ class StatsPanel:
         self._stat_canvas = MplCanvas(self._impl)
         self._stat_canvas._impl.setObjectName(STAT_CANVAS_OBJECT_NAME)
         root_layout.addWidget(self._stat_canvas._impl, 1)
-
-        self._stat_nav_toolbar = MplToolbar(self._stat_canvas, self._impl)
-        self._stat_nav_toolbar._impl.setObjectName(STAT_NAV_TOOLBAR_OBJECT_NAME)
-        root_layout.addWidget(self._stat_nav_toolbar._impl)
 
         self._redraw()
 

@@ -34,7 +34,6 @@ from app.gui_qt.panels.maps_panel import (
     BAND_LABEL_OBJECT_NAME,
     DEFAULT_VIEW,
     MPL_CANVAS_OBJECT_NAME,
-    MPL_NAV_TOOLBAR_OBJECT_NAME,
     OBJECT_NAME,
     VIEW_COMBO_OBJECT_NAME,
     VIEW_COMBO_VALUES,
@@ -135,12 +134,6 @@ def test_mpl_canvas_present(maps_panel):
     assert widget is not None, f"{MPL_CANVAS_OBJECT_NAME} not found"
 
 
-def test_mpl_nav_toolbar_present(maps_panel):
-    """mpl_nav_toolbar widget is present and discoverable."""
-    widget = _find_object_by_name(maps_panel._impl, MPL_NAV_TOOLBAR_OBJECT_NAME)
-    assert widget is not None, f"{MPL_NAV_TOOLBAR_OBJECT_NAME} not found"
-
-
 # -- view_combo content tests ------------------------------------------------
 
 
@@ -229,7 +222,6 @@ def test_constants_exported_at_module_level():
     assert BAND_LABEL_OBJECT_NAME == "band_label"
     assert BAND_COMBO_OBJECT_NAME == "band_combo"
     assert MPL_CANVAS_OBJECT_NAME == "mpl_canvas"
-    assert MPL_NAV_TOOLBAR_OBJECT_NAME == "mpl_nav_toolbar"
     assert VIEW_COMBO_VALUES == [
         "Chromophore Maps",
         "Derived Maps",
@@ -361,6 +353,37 @@ def test_show_results_with_derived_maps(maps_panel):
     assert maps_panel._derived_maps is not None
     assert "THb" in maps_panel._derived_maps
     assert "StO2" in maps_panel._derived_maps
+
+
+def test_show_results_infers_background_component_for_display(maps_panel):
+    """A background concentration channel is displayed even when names omit it."""
+    maps_panel.show_results({
+        "concentrations": np.random.rand(10, 10, 3),
+        "chromophore_names": ["HbO2", "Hb"],
+        "include_background": True,
+    })
+
+    fig = maps_panel._canvas.figure
+    image_axes = _axes_with_images(fig)
+    titles = {ax.get_title() for ax in image_axes}
+
+    assert len(image_axes) == 3
+    assert titles == {"HbO2", "Hb", "Background"}
+
+
+def test_show_results_supports_background_only_display(maps_panel):
+    """A background-only run still renders a single Background map."""
+    maps_panel.show_results({
+        "concentrations": np.random.rand(10, 10, 1),
+        "chromophore_names": [],
+        "include_background": True,
+    })
+
+    fig = maps_panel._canvas.figure
+    image_axes = _axes_with_images(fig)
+
+    assert len(image_axes) == 1
+    assert image_axes[0].get_title() == "Background"
 
 
 def test_show_results_none_clears(maps_panel):

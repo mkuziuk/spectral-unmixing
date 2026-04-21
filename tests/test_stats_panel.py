@@ -30,7 +30,7 @@ def qapp_instance():
 
 
 def test_stats_panel_shell_layout_and_defaults(qapp_instance):
-    """Stats panel exposes required controls/canvas/toolbar shell."""
+    """Stats panel exposes required controls and canvas shell."""
     from PySide6.QtWidgets import QComboBox, QLabel, QVBoxLayout, QWidget
 
     from app.gui_qt.panels.stats_panel import StatsPanel
@@ -42,12 +42,10 @@ def test_stats_panel_shell_layout_and_defaults(qapp_instance):
     label = root.findChild(QLabel, "stat_label")
     combo = root.findChild(QComboBox, "stat_combo")
     canvas = root.findChild(QWidget, "stat_canvas")
-    nav_toolbar = root.findChild(QWidget, "stat_nav_toolbar")
 
     assert label is not None
     assert combo is not None
     assert canvas is not None
-    assert nav_toolbar is not None
 
     assert [combo.itemText(i) for i in range(combo.count())] == ["Mean", "Median"]
     assert combo.currentText() == "Median"
@@ -55,10 +53,9 @@ def test_stats_panel_shell_layout_and_defaults(qapp_instance):
 
     layout = root.layout()
     assert isinstance(layout, QVBoxLayout)
-    assert layout.count() == 3
+    assert layout.count() == 2
     assert layout.itemAt(0).layout() is not None
     assert layout.itemAt(1).widget() is canvas
-    assert layout.itemAt(2).widget() is nav_toolbar
 
 
 def test_stats_panel_stub_methods_are_callable(qapp_instance):

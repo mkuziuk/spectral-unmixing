@@ -19,7 +19,6 @@ VIEW_COMBO_OBJECT_NAME: str = "view_combo"
 BAND_LABEL_OBJECT_NAME: str = "band_label"
 BAND_COMBO_OBJECT_NAME: str = "band_combo"
 MPL_CANVAS_OBJECT_NAME: str = "mpl_canvas"
-MPL_NAV_TOOLBAR_OBJECT_NAME: str = "mpl_nav_toolbar"
 
 # -- view combo values (order is significant) --------------------------------
 
@@ -176,7 +175,7 @@ class MapsPanel:
         controls_layout.addStretch()
 
         # -- matplotlib canvas -----------------------------------------------
-        from app.gui_qt.mpl.canvas import MplCanvas, MplToolbar
+        from app.gui_qt.mpl.canvas import MplCanvas
 
         self._canvas = MplCanvas(parent=self._impl)
         self._canvas._impl.setObjectName(MPL_CANVAS_OBJECT_NAME)
@@ -186,17 +185,12 @@ class MapsPanel:
             self._canvas._impl.sizePolicy().verticalPolicy(),
         )
 
-        # -- navigation toolbar ----------------------------------------------
-        mpl_nav_toolbar = MplToolbar(canvas=self._canvas, parent=self._impl)
-        mpl_nav_toolbar._impl.setObjectName(MPL_NAV_TOOLBAR_OBJECT_NAME)
-
         # -- assemble vertical layout ----------------------------------------
         main_layout = QVBoxLayout(self._impl)
         main_layout.setContentsMargins(4, 4, 4, 4)
         main_layout.setSpacing(4)
         main_layout.addLayout(controls_layout)
         main_layout.addWidget(self._canvas._impl, stretch=1)
-        main_layout.addWidget(mpl_nav_toolbar._impl)
 
         self._impl.setLayout(main_layout)
 
@@ -304,19 +298,16 @@ class MapsPanel:
         Layout: 3 columns, rows computed from chromophore count.
         Each subplot shows one chromophore with title and colorbar.
         """
-        if (
-            self._concentrations is None
-            or self._chromophore_names is None
-            or len(self._chromophore_names) == 0
-        ):
+        component_names = self._component_display_names()
+        if self._concentrations is None or len(component_names) == 0:
             self._show_placeholder()
             return
 
-        n_chrom = len(self._chromophore_names)
+        n_chrom = len(component_names)
         ncols = 3
         nrows = (n_chrom + ncols - 1) // ncols  # ceiling division
 
-        for idx, name in enumerate(self._chromophore_names):
+        for idx, name in enumerate(component_names):
             try:
                 data = self._concentrations[:, :, idx]
             except IndexError:
@@ -411,6 +402,29 @@ class MapsPanel:
             ax.set_title(title)
             ax.set_axis_off()
             fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+    def _component_display_names(self) -> list[str]:
+        """Return component names aligned to the concentration cube."""
+        if self._concentrations is None:
+            return []
+
+        conc_shape = getattr(self._concentrations, "shape", ())
+        if len(conc_shape) < 3:
+            return []
+
+        names = list(self._chromophore_names or [])
+        has_explicit_background_flag = "include_background" in (self._results or {})
+        include_background = bool((self._results or {}).get("include_background", True))
+        if not names and not has_explicit_background_flag:
+            return []
+        if include_background and len(names) < conc_shape[2]:
+            names.append("Background")
+        if len(names) < conc_shape[2]:
+            names.extend(
+                f"Component {idx + 1}"
+                for idx in range(len(names), conc_shape[2])
+            )
+        return names[: conc_shape[2]]
 
 
 # ---------------------------------------------------------------------------
