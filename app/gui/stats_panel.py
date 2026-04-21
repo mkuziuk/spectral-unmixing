@@ -1,6 +1,16 @@
 """
 Statistics panel — displays mean and median reflectance per wavelength for the selected hypercube.
+
+DEPRECATED: Retained only for the ``--legacy-tk`` rollback path.
+Use ``app.gui_qt.panels.stats_panel`` for the default PySide6 UI.
 """
+
+import warnings
+warnings.warn(
+    "app.gui.stats_panel is deprecated; use app.gui_qt.panels.stats_panel.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import tkinter as tk
 from tkinter import ttk

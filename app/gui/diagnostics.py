@@ -1,6 +1,16 @@
 """
 Diagnostics panel — RMSE stats, warnings, residual histogram, quality mask.
+
+DEPRECATED: Retained only for the ``--legacy-tk`` rollback path.
+Use ``app.gui_qt.panels.diagnostics_panel`` for the default PySide6 UI.
 """
+
+import warnings
+warnings.warn(
+    "app.gui.diagnostics is deprecated; use app.gui_qt.panels.diagnostics_panel.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import tkinter as tk
 from tkinter import ttk

@@ -1,8 +1,18 @@
 """
 Visualization panel — displays chromophore maps, derived maps, and raw/reflectance/OD images.
 
+DEPRECATED: Retained only for the ``--legacy-tk`` rollback path.
+Use ``app.gui_qt.panels.maps_panel`` for the default PySide6 UI.
+
 Uses matplotlib FigureCanvasTkAgg embedded in a tkinter frame.
 """
+
+import warnings
+warnings.warn(
+    "app.gui.viz_panel is deprecated; use app.gui_qt.panels.maps_panel.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import tkinter as tk
 from tkinter import ttk
@@ -129,7 +139,7 @@ class VizPanel(ttk.Frame):
             ax = self.fig.add_subplot(1, 3, i + 1)
             vmin, vmax = self._derived_scales.get(name, (None, None)) if self._derived_scales else (None, None)
             im = ax.imshow(data, cmap=cmaps.get(name, "viridis"), aspect="equal", vmin=vmin, vmax=vmax)
-            ax.set_title(name, fontsize=10)
+            ax.set_title(self._format_map_title(name, data), fontsize=10)
             ax.set_xticks([])
             ax.set_yticks([])
             self.fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
@@ -154,7 +164,17 @@ class VizPanel(ttk.Frame):
         for i, (title, data, cmap) in enumerate(panels):
             ax = self.fig.add_subplot(1, 3, i + 1)
             im = ax.imshow(data, cmap=cmap, aspect="equal")
-            ax.set_title(f"{title} @ {wls[band_idx]} nm", fontsize=10)
+            ax.set_title(self._format_map_title(f"{title} @ {wls[band_idx]} nm", data), fontsize=10)
             ax.set_xticks([])
             ax.set_yticks([])
             self.fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+    @staticmethod
+    def _format_map_title(name, data):
+        finite = np.asarray(data)[np.isfinite(data)]
+        if finite.size == 0:
+            return name
+
+        mean_val = float(finite.mean())
+        median_val = float(np.median(finite))
+        return f"{name}\nμ={mean_val:.3e}, med={median_val:.3e}"
