@@ -32,12 +32,14 @@ MAPS_TAB_OBJECT_NAME: str = "MapsTab"
 INSPECTOR_TAB_OBJECT_NAME: str = "InspectorTab"
 DIAGNOSTICS_TAB_OBJECT_NAME: str = "DiagnosticsTab"
 STATS_TAB_OBJECT_NAME: str = "StatsTab"
+BAR_CHARTS_TAB_OBJECT_NAME: str = "ChromophoreBarChartsTab"
 
 # Tab labels (user-visible)
 MAPS_TAB_LABEL: str = "Maps"
 INSPECTOR_TAB_LABEL: str = "Pixel Inspector"
 DIAGNOSTICS_TAB_LABEL: str = "Diagnostics"
 STATS_TAB_LABEL: str = "Reflectance Stats"
+BAR_CHARTS_TAB_LABEL: str = "Chromophore Bar Charts"
 
 # Initial splitter sizes (left sidebar, right tab area)
 INITIAL_SPLITTER_SIZES: list[int] = [280, 1120]
@@ -102,6 +104,7 @@ class SpectralUnmixingMainWindow:
         self._inspector_panel: Any = None
         self._diagnostics_panel: Any = None
         self._stats_panel: Any = None
+        self._barcharts_panel: Any = None
 
         # Keep non-blocking dialog references alive briefly.
         self._dialogs: list[Any] = []
@@ -534,6 +537,8 @@ class SpectralUnmixingMainWindow:
             })
         if self._stats_panel is not None:
             self._stats_panel.set_data(result)
+        if self._barcharts_panel is not None:
+            self._barcharts_panel.set_data(self._results)
 
         self._set_status(f"Showing sample: {name}")
 
@@ -1005,6 +1010,7 @@ class SpectralUnmixingMainWindow:
         from PySide6.QtWidgets import QTabWidget
 
         from app.gui_qt.panels import (
+            ChromophoreBarChartsPanel,
             DiagnosticsPanel,
             InspectorPanel,
             MapsPanel,
@@ -1031,10 +1037,15 @@ class SpectralUnmixingMainWindow:
         stats_panel._impl.setObjectName(STATS_TAB_OBJECT_NAME)
         tab_widget.addTab(stats_panel._impl, STATS_TAB_LABEL)
 
+        barcharts_panel = ChromophoreBarChartsPanel(tab_widget)
+        barcharts_panel._impl.setObjectName(BAR_CHARTS_TAB_OBJECT_NAME)
+        tab_widget.addTab(barcharts_panel._impl, BAR_CHARTS_TAB_LABEL)
+
         self._maps_panel = maps_panel
         self._inspector_panel = inspector_panel
         self._diagnostics_panel = diagnostics_panel
         self._stats_panel = stats_panel
+        self._barcharts_panel = barcharts_panel
 
         return tab_widget
 

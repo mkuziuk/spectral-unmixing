@@ -17,7 +17,7 @@ This branch includes the new **PySide6 UI** as the primary application interface
 
 - `python app/main.py` launches the new Qt interface by default
 - the legacy tkinter UI remains available only as a rollback path via `--legacy-tk`
-- maps, inspector, diagnostics, and reflectance statistics are all available in the new UI
+- maps, inspector, diagnostics, reflectance statistics, and chromophore bar charts are all available in the new UI
 
 ## Capabilities
 
@@ -206,7 +206,7 @@ custom_data_folder/
 5. Select desired chromophores from the **Chromophores** menu
 6. Adjust solver (LS/NNLS) and background value if needed
 7. Click **▶ Run Unmixing** to process all samples
-8. Use the tabs (Maps, Pixel Inspector, Diagnostics, Reflectance Stats) to view results
+8. Use the tabs (Maps, Pixel Inspector, Diagnostics, Reflectance Stats, Chromophore Bar Charts) to view results
 9. Click **💾 Save Results** to export component maps and arrays
 
 ### Common Errors and Solutions

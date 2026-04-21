@@ -26,6 +26,7 @@ EXPECTED_TAB_ORDER = [
     "Pixel Inspector",
     "Diagnostics",
     "Reflectance Stats",
+    "Chromophore Bar Charts",
 ]
 
 CORE_TOOLBAR_OBJECT_NAMES = [
@@ -109,7 +110,7 @@ def test_qt_main_window_instantiates_without_crash(main_window):
 
 
 def test_qt_main_window_has_expected_tab_order(main_window):
-    """Main shell contains all four tabs in baseline order."""
+    """Main shell contains all five tabs in baseline order."""
     from PySide6.QtWidgets import QTabWidget
 
     tab_widget = main_window._impl.findChild(QTabWidget)
