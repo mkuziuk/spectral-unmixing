@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import sys
+from functools import partial
 from typing import TYPE_CHECKING, Any, Callable, Dict, Sequence
 
 if TYPE_CHECKING:  # pragma: no cover — type-checking only
@@ -56,6 +57,18 @@ SAVE_BTN_OBJECT_NAME: str = "save_btn"
 PROGRESS_BAR_OBJECT_NAME: str = "progress_bar"
 DATA_SOURCE_LABEL_OBJECT_NAME: str = "data_source_label"
 STATUS_LABEL_OBJECT_NAME: str = "status_label"
+SCATTERING_TOOLBAR_OBJECT_NAME: str = "scattering_toolbar"
+SCATTERING_TITLE_OBJECT_NAME: str = "scattering_title"
+SCATTERING_LAMBDA0_LABEL_OBJECT_NAME: str = "scattering_lambda0_label"
+SCATTERING_LAMBDA0_ENTRY_OBJECT_NAME: str = "scattering_lambda0_entry"
+SCATTERING_MU_S_500_LABEL_OBJECT_NAME: str = "scattering_mu_s_500_label"
+SCATTERING_MU_S_500_ENTRY_OBJECT_NAME: str = "scattering_mu_s_500_entry"
+SCATTERING_POWER_LABEL_OBJECT_NAME: str = "scattering_power_label"
+SCATTERING_POWER_ENTRY_OBJECT_NAME: str = "scattering_power_entry"
+SCATTERING_LIPOFUNDIN_LABEL_OBJECT_NAME: str = "scattering_lipofundin_label"
+SCATTERING_LIPOFUNDIN_ENTRY_OBJECT_NAME: str = "scattering_lipofundin_entry"
+SCATTERING_ANISOTROPY_LABEL_OBJECT_NAME: str = "scattering_anisotropy_label"
+SCATTERING_ANISOTROPY_ENTRY_OBJECT_NAME: str = "scattering_anisotropy_entry"
 
 
 # ---------------------------------------------------------------------------
@@ -95,6 +108,7 @@ class SpectralUnmixingMainWindow:
 
         self._chromophore_menu: Any = None
         self._bg_value: float = 2500.0
+        self._scattering_params: Dict[str, float] = self._default_scattering_parameters()
         self._set_window_properties()
         self._setup_ui()
 
@@ -177,6 +191,9 @@ class SpectralUnmixingMainWindow:
         # Toolbar (QT-003) lives above the central splitter.
         toolbar = self._build_toolbar(self._impl)
         self._impl.addToolBar(Qt.TopToolBarArea, toolbar)
+        scattering_toolbar = self._build_scattering_toolbar(self._impl)
+        self._impl.addToolBarBreak(Qt.TopToolBarArea)
+        self._impl.addToolBar(Qt.TopToolBarArea, scattering_toolbar)
 
         # -- central splitter ------------------------------------------------
         splitter = QSplitter(Qt.Orientation.Horizontal, self._impl)
@@ -206,6 +223,8 @@ class SpectralUnmixingMainWindow:
         # Stretch factors preserve ratio when the window is resized.
         splitter.setStretchFactor(0, 0)  # sidebar: fixed
         splitter.setStretchFactor(1, 1)  # tab area: expands
+
+        self._set_solver_dependent_controls("ls")
 
     def _build_toolbar(self, parent: Any):
         """Construct top toolbar with stable QT-003 control ordering."""
@@ -259,8 +278,9 @@ class SpectralUnmixingMainWindow:
         solver_combo = QComboBox(toolbar)
         solver_combo.setObjectName(SOLVER_COMBO_OBJECT_NAME)
         solver_combo.setEditable(False)
-        solver_combo.addItems(["ls", "nnls"])
+        solver_combo.addItems(["ls", "nnls", "mu_a"])
         solver_combo.setCurrentIndex(0)
+        solver_combo.currentTextChanged.connect(self._on_solver_method_changed)
         toolbar.addWidget(solver_combo)
 
         # 7) background_label
@@ -305,6 +325,46 @@ class SpectralUnmixingMainWindow:
         status_label = QLabel("Ready", toolbar)
         status_label.setObjectName(STATUS_LABEL_OBJECT_NAME)
         toolbar.addWidget(status_label)
+
+        return toolbar
+
+    def _build_scattering_toolbar(self, parent: Any):
+        """Construct a secondary toolbar with fixed-scattering controls."""
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QLabel, QLineEdit, QToolBar
+
+        toolbar = QToolBar("Scattering Toolbar", parent)
+        toolbar.setObjectName(SCATTERING_TOOLBAR_OBJECT_NAME)
+        toolbar.setMovable(False)
+        toolbar.setFloatable(False)
+        toolbar.setAllowedAreas(Qt.ToolBarArea.TopToolBarArea)
+        toolbar.setVisible(False)
+
+        title = QLabel("Fixed scattering:", toolbar)
+        title.setObjectName(SCATTERING_TITLE_OBJECT_NAME)
+        title.setStyleSheet("font-weight: 600;")
+        toolbar.addWidget(title)
+
+        fields = [
+            ("lambda0 (nm):", SCATTERING_LAMBDA0_LABEL_OBJECT_NAME, SCATTERING_LAMBDA0_ENTRY_OBJECT_NAME, "lambda0_nm"),
+            ("mu_s_500 (cm^-1):", SCATTERING_MU_S_500_LABEL_OBJECT_NAME, SCATTERING_MU_S_500_ENTRY_OBJECT_NAME, "mu_s_500_cm1"),
+            ("b:", SCATTERING_POWER_LABEL_OBJECT_NAME, SCATTERING_POWER_ENTRY_OBJECT_NAME, "power_b"),
+            ("lipo frac:", SCATTERING_LIPOFUNDIN_LABEL_OBJECT_NAME, SCATTERING_LIPOFUNDIN_ENTRY_OBJECT_NAME, "lipofundin_fraction"),
+            ("g:", SCATTERING_ANISOTROPY_LABEL_OBJECT_NAME, SCATTERING_ANISOTROPY_ENTRY_OBJECT_NAME, "anisotropy_g"),
+        ]
+
+        for label_text, label_name, entry_name, key in fields:
+            label = QLabel(label_text, toolbar)
+            label.setObjectName(label_name)
+            toolbar.addWidget(label)
+
+            entry = QLineEdit(toolbar)
+            entry.setObjectName(entry_name)
+            entry.setText(str(self._scattering_params[key]))
+            entry.setMaximumWidth(88)
+            entry.setAlignment(Qt.AlignmentFlag.AlignRight)
+            entry.editingFinished.connect(partial(self._on_scattering_editing_finished, key))
+            toolbar.addWidget(entry)
 
         return toolbar
 
@@ -610,18 +670,30 @@ class SpectralUnmixingMainWindow:
         bg_entry = self._impl.findChild(QLineEdit, BG_ENTRY_OBJECT_NAME)
 
         solver_method = solver_combo.currentText() if solver_combo is not None else "ls"
+        scattering_parameters = None
 
-        bg_raw = bg_entry.text().strip() if bg_entry is not None else str(self._bg_value)
-        try:
-            bg_value = float(bg_raw)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"Background value must be numeric: {bg_raw!r}") from exc
-        self._bg_value = bg_value
+        if solver_method == "mu_a":
+            bg_value = self._bg_value
+            try:
+                scattering_parameters = self._read_scattering_params_from_ui()
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"Invalid scattering parameters: {exc}") from exc
+        else:
+            bg_raw = bg_entry.text().strip() if bg_entry is not None else str(self._bg_value)
+            try:
+                bg_value = float(bg_raw)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"Background value must be numeric: {bg_raw!r}") from exc
+            self._bg_value = bg_value
 
         selected = self.get_selection(include_background=True)
         include_background = "Background" in selected
         selected_chroms = [name for name in selected if name != "Background"]
-        if not selected_chroms and not include_background:
+        if solver_method == "mu_a":
+            include_background = False
+            if not selected_chroms:
+                raise ValueError("Select at least one chromophore for the mu_a solver.")
+        elif not selected_chroms and not include_background:
             raise ValueError("Select at least one chromophore or enable Background.")
 
         return {
@@ -630,6 +702,7 @@ class SpectralUnmixingMainWindow:
             "folder_info": dict(self.folder_info),
             "solver_method": solver_method,
             "background_value": bg_value,
+            "scattering_parameters": scattering_parameters,
             "include_background": include_background,
             "selected_chromophores": selected_chroms,
         }
@@ -654,17 +727,33 @@ class SpectralUnmixingMainWindow:
             led_wl, led_em = loader.load_led_emission(data_dir, wls)
             pen_wl, pen_depth = loader.load_penetration_depth(data_dir)
 
-            A, chrom_names = processing.build_overlap_matrix(
-                led_wl,
-                led_em,
-                chrom_spectra,
-                pen_wl,
-                pen_depth,
-                wls,
-                chromophore_names=snapshot["selected_chromophores"],
-                include_background=snapshot["include_background"],
-                background_value=snapshot["background_value"],
-            )
+            mus_prime = None
+            if snapshot["solver_method"] == "mu_a":
+                A, chrom_names = processing.build_absorption_matrix(
+                    led_wl,
+                    led_em,
+                    chrom_spectra,
+                    wls,
+                    chromophore_names=snapshot["selected_chromophores"],
+                )
+                mus_prime = processing.build_fixed_scattering_profile(
+                    led_wl,
+                    led_em,
+                    wls,
+                    **snapshot["scattering_parameters"],
+                )
+            else:
+                A, chrom_names = processing.build_overlap_matrix(
+                    led_wl,
+                    led_em,
+                    chrom_spectra,
+                    pen_wl,
+                    pen_depth,
+                    wls,
+                    chromophore_names=snapshot["selected_chromophores"],
+                    include_background=snapshot["include_background"],
+                    background_value=snapshot["background_value"],
+                )
 
             results: Dict[str, Dict[str, Any]] = {}
             for sample_dir, sample_name in zip(info["samples"], info["sample_names"]):
@@ -675,6 +764,7 @@ class SpectralUnmixingMainWindow:
                     od_cube,
                     A,
                     method=snapshot["solver_method"],
+                    mus_prime=mus_prime,
                 )
                 derived = processing.compute_derived_maps(concentrations, chrom_names)
                 diagnostics = processing.compute_diagnostics(reflectance, od_cube, rmse_map, A)
@@ -693,6 +783,7 @@ class SpectralUnmixingMainWindow:
                     "chromophore_names": chrom_names,
                     "include_background": snapshot["include_background"],
                     "background_value": snapshot["background_value"],
+                    "scattering_parameters": snapshot["scattering_parameters"],
                     "solver_method": snapshot["solver_method"],
                     "wavelengths": wls,
                 }
@@ -742,6 +833,59 @@ class SpectralUnmixingMainWindow:
         if label is not None:
             label.setText(text)
 
+    @staticmethod
+    def _default_scattering_parameters() -> Dict[str, float]:
+        """Return the default scattering parameter set used by the mu_a solver."""
+        from app.core import processing
+
+        return processing.get_default_scattering_parameters()
+
+    @staticmethod
+    def _scattering_entry_specs() -> tuple[tuple[str, str, str], ...]:
+        """Return ordered scattering parameter specs: key, label, objectName."""
+        return (
+            ("lambda0_nm", "lambda0", SCATTERING_LAMBDA0_ENTRY_OBJECT_NAME),
+            ("mu_s_500_cm1", "mu_s_500", SCATTERING_MU_S_500_ENTRY_OBJECT_NAME),
+            ("power_b", "b", SCATTERING_POWER_ENTRY_OBJECT_NAME),
+            ("lipofundin_fraction", "lipo_frac", SCATTERING_LIPOFUNDIN_ENTRY_OBJECT_NAME),
+            ("anisotropy_g", "g", SCATTERING_ANISOTROPY_ENTRY_OBJECT_NAME),
+        )
+
+    def _read_scattering_params_from_ui(self) -> Dict[str, float]:
+        """Read, validate, and cache scattering parameters from toolbar entries."""
+        from PySide6.QtWidgets import QLineEdit
+        from app.core import processing
+
+        raw_params = {}
+        for key, _label, object_name in self._scattering_entry_specs():
+            entry = self._impl.findChild(QLineEdit, object_name)
+            raw_params[key] = entry.text().strip() if entry is not None else self._scattering_params[key]
+
+        validated = processing.validate_scattering_parameters(raw_params)
+        self._scattering_params = validated
+        return dict(validated)
+
+    def _set_solver_dependent_controls(self, solver_method: str) -> None:
+        """Toggle background vs fixed-scattering controls based on solver."""
+        from PySide6.QtWidgets import QLineEdit, QLabel, QToolBar
+
+        use_mu_a = solver_method == "mu_a"
+
+        background_label = self._impl.findChild(QLabel, BACKGROUND_LABEL_OBJECT_NAME)
+        background_entry = self._impl.findChild(QLineEdit, BG_ENTRY_OBJECT_NAME)
+        scattering_toolbar = self._impl.findChild(QToolBar, SCATTERING_TOOLBAR_OBJECT_NAME)
+
+        if background_label is not None:
+            background_label.setVisible(not use_mu_a)
+        if background_entry is not None:
+            background_entry.setVisible(not use_mu_a)
+        if scattering_toolbar is not None:
+            scattering_toolbar.setVisible(use_mu_a)
+
+    def _on_solver_method_changed(self, solver_method: str) -> None:
+        """Update solver-specific controls when the dropdown selection changes."""
+        self._set_solver_dependent_controls(solver_method)
+
     # -- background entry validation (QT-005) --------------------------------
 
     def get_background_value(self) -> float:
@@ -781,6 +925,32 @@ class SpectralUnmixingMainWindow:
         # transitions but the value itself did not change.
         if status_label is not None and value != previous:
             status_label.setText(f"Background = {value}")
+
+    def _on_scattering_editing_finished(self, key: str) -> None:
+        """Validate one scattering entry while preserving the rest of the config."""
+        from PySide6.QtWidgets import QLineEdit, QLabel
+
+        entry_map = {entry_key: object_name for entry_key, _label, object_name in self._scattering_entry_specs()}
+        label_map = {entry_key: label for entry_key, label, _object_name in self._scattering_entry_specs()}
+
+        entry = self._impl.findChild(QLineEdit, entry_map[key])
+        status_label = self._impl.findChild(QLabel, STATUS_LABEL_OBJECT_NAME)
+        if entry is None:
+            return
+
+        previous = self._scattering_params[key]
+        try:
+            params = self._read_scattering_params_from_ui()
+        except (TypeError, ValueError) as exc:
+            entry.setText(str(self._scattering_params[key]))
+            if status_label is not None:
+                status_label.setText(f"Invalid {label_map[key]}: {exc}")
+            return
+
+        value = params[key]
+        entry.setText(str(value))
+        if status_label is not None and value != previous:
+            status_label.setText(f"{label_map[key]} = {value}")
 
     # -- sidebar builder ----------------------------------------------------
 
