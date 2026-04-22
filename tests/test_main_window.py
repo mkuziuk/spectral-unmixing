@@ -387,14 +387,14 @@ class TestQt003Toolbar(unittest.TestCase):
         self.assertFalse(solver_combo.isEditable())
 
     def test_solver_combo_options_order(self):
-        """Solver combo options must be exactly ['ls', 'nnls', 'mu_a'] in order."""
+        """Solver combo options must be exactly ['ls', 'nnls', 'mu_a', 'iterative'] in order."""
         from PySide6.QtWidgets import QComboBox
         from app.gui_qt.main_window import SOLVER_COMBO_OBJECT_NAME
 
         solver_combo = self.impl.findChild(QComboBox, SOLVER_COMBO_OBJECT_NAME)
         self.assertIsNotNone(solver_combo)
 
-        expected = ["ls", "nnls", "mu_a"]
+        expected = ["ls", "nnls", "mu_a", "iterative"]
         actual = [solver_combo.itemText(i) for i in range(solver_combo.count())]
         self.assertEqual(actual, expected)
 
@@ -408,7 +408,7 @@ class TestQt003Toolbar(unittest.TestCase):
         self.assertEqual(solver_combo.currentText(), "ls")
 
     def test_scattering_toolbar_hidden_by_default(self):
-        """Fixed-scattering controls must start hidden until mu_a is selected."""
+        """Fixed-scattering controls must start hidden until a fixed-scattering solver is selected."""
         from PySide6.QtTest import QTest
         from PySide6.QtWidgets import QToolBar
         from app.gui_qt.main_window import SCATTERING_TOOLBAR_OBJECT_NAME
@@ -438,6 +438,31 @@ class TestQt003Toolbar(unittest.TestCase):
         scattering_toolbar = self.impl.findChild(QToolBar, SCATTERING_TOOLBAR_OBJECT_NAME)
 
         solver_combo.setCurrentText("mu_a")
+        QTest.qWait(10)
+
+        self.assertFalse(background_label.isVisible())
+        self.assertFalse(bg_entry.isVisible())
+        self.assertTrue(scattering_toolbar.isVisible())
+
+    def test_iterative_selection_shows_scattering_and_hides_background(self):
+        """Choosing iterative should show fixed-scattering controls and hide background."""
+        from PySide6.QtTest import QTest
+        from PySide6.QtWidgets import QComboBox, QLineEdit, QLabel, QToolBar
+        from app.gui_qt.main_window import (
+            BACKGROUND_LABEL_OBJECT_NAME,
+            BG_ENTRY_OBJECT_NAME,
+            SCATTERING_TOOLBAR_OBJECT_NAME,
+            SOLVER_COMBO_OBJECT_NAME,
+        )
+
+        self.impl.show()
+        QTest.qWait(10)
+        solver_combo = self.impl.findChild(QComboBox, SOLVER_COMBO_OBJECT_NAME)
+        background_label = self.impl.findChild(QLabel, BACKGROUND_LABEL_OBJECT_NAME)
+        bg_entry = self.impl.findChild(QLineEdit, BG_ENTRY_OBJECT_NAME)
+        scattering_toolbar = self.impl.findChild(QToolBar, SCATTERING_TOOLBAR_OBJECT_NAME)
+
+        solver_combo.setCurrentText("iterative")
         QTest.qWait(10)
 
         self.assertFalse(background_label.isVisible())
@@ -515,6 +540,53 @@ class TestQt003Toolbar(unittest.TestCase):
                 "power_b": 1.2,
                 "lipofundin_fraction": 0.35,
                 "anisotropy_g": 0.78,
+            },
+        )
+
+    def test_iterative_snapshot_captures_scattering_parameters(self):
+        """Iterative snapshot should include validated fixed-scattering parameters."""
+        from PySide6.QtWidgets import QComboBox, QLineEdit
+        from app.gui_qt.main_window import (
+            SCATTERING_ANISOTROPY_ENTRY_OBJECT_NAME,
+            SCATTERING_LAMBDA0_ENTRY_OBJECT_NAME,
+            SCATTERING_LIPOFUNDIN_ENTRY_OBJECT_NAME,
+            SCATTERING_MU_S_500_ENTRY_OBJECT_NAME,
+            SCATTERING_POWER_ENTRY_OBJECT_NAME,
+            SOLVER_COMBO_OBJECT_NAME,
+        )
+
+        self.window.root_dir = "/tmp/root"
+        self.window.data_dir = "/tmp/data"
+        self.window.folder_info = {"wavelengths": [500, 550]}
+        self.window.set_chromophores(["Hb"])
+
+        solver_combo = self.impl.findChild(QComboBox, SOLVER_COMBO_OBJECT_NAME)
+        solver_combo.setCurrentText("iterative")
+
+        entry_values = {
+            SCATTERING_LAMBDA0_ENTRY_OBJECT_NAME: "505",
+            SCATTERING_MU_S_500_ENTRY_OBJECT_NAME: "125",
+            SCATTERING_POWER_ENTRY_OBJECT_NAME: "1.1",
+            SCATTERING_LIPOFUNDIN_ENTRY_OBJECT_NAME: "0.30",
+            SCATTERING_ANISOTROPY_ENTRY_OBJECT_NAME: "0.79",
+        }
+        for object_name, value in entry_values.items():
+            entry = self.impl.findChild(QLineEdit, object_name)
+            self.assertIsNotNone(entry)
+            entry.setText(value)
+
+        snapshot = self.window._build_config_snapshot()
+
+        self.assertEqual(snapshot["solver_method"], "iterative")
+        self.assertFalse(snapshot["include_background"])
+        self.assertEqual(
+            snapshot["scattering_parameters"],
+            {
+                "lambda0_nm": 505.0,
+                "mu_s_500_cm1": 125.0,
+                "power_b": 1.1,
+                "lipofundin_fraction": 0.30,
+                "anisotropy_g": 0.79,
             },
         )
 

@@ -110,6 +110,8 @@ class SpectralUnmixingMainWindow:
         self._dialogs: list[Any] = []
 
         self._chromophore_menu: Any = None
+        self._background_label_action: Any = None
+        self._background_entry_action: Any = None
         self._bg_value: float = 2500.0
         self._scattering_params: Dict[str, float] = self._default_scattering_parameters()
         self._set_window_properties()
@@ -281,7 +283,7 @@ class SpectralUnmixingMainWindow:
         solver_combo = QComboBox(toolbar)
         solver_combo.setObjectName(SOLVER_COMBO_OBJECT_NAME)
         solver_combo.setEditable(False)
-        solver_combo.addItems(["ls", "nnls", "mu_a"])
+        solver_combo.addItems(["ls", "nnls", "mu_a", "iterative"])
         solver_combo.setCurrentIndex(0)
         solver_combo.currentTextChanged.connect(self._on_solver_method_changed)
         toolbar.addWidget(solver_combo)
@@ -289,14 +291,14 @@ class SpectralUnmixingMainWindow:
         # 7) background_label
         background_label = QLabel("Background:", toolbar)
         background_label.setObjectName(BACKGROUND_LABEL_OBJECT_NAME)
-        toolbar.addWidget(background_label)
+        self._background_label_action = toolbar.addWidget(background_label)
 
         # 8) bg_entry
         bg_entry = QLineEdit(toolbar)
         bg_entry.setObjectName(BG_ENTRY_OBJECT_NAME)
         bg_entry.setText("2500.0")
         bg_entry.editingFinished.connect(self._on_bg_editing_finished)
-        toolbar.addWidget(bg_entry)
+        self._background_entry_action = toolbar.addWidget(bg_entry)
 
         # 9) run_btn
         run_btn = QPushButton("Run", toolbar)
@@ -675,9 +677,10 @@ class SpectralUnmixingMainWindow:
         bg_entry = self._impl.findChild(QLineEdit, BG_ENTRY_OBJECT_NAME)
 
         solver_method = solver_combo.currentText() if solver_combo is not None else "ls"
+        use_fixed_scattering = self._uses_fixed_scattering_solver(solver_method)
         scattering_parameters = None
 
-        if solver_method == "mu_a":
+        if use_fixed_scattering:
             bg_value = self._bg_value
             try:
                 scattering_parameters = self._read_scattering_params_from_ui()
@@ -694,10 +697,12 @@ class SpectralUnmixingMainWindow:
         selected = self.get_selection(include_background=True)
         include_background = "Background" in selected
         selected_chroms = [name for name in selected if name != "Background"]
-        if solver_method == "mu_a":
+        if use_fixed_scattering:
             include_background = False
             if not selected_chroms:
-                raise ValueError("Select at least one chromophore for the mu_a solver.")
+                raise ValueError(
+                    f"Select at least one chromophore for the {solver_method} solver."
+                )
         elif not selected_chroms and not include_background:
             raise ValueError("Select at least one chromophore or enable Background.")
 
@@ -747,6 +752,18 @@ class SpectralUnmixingMainWindow:
                     wls,
                     **snapshot["scattering_parameters"],
                 )
+            elif snapshot["solver_method"] == "iterative":
+                A, chrom_names = processing.build_overlap_matrix(
+                    led_wl,
+                    led_em,
+                    chrom_spectra,
+                    pen_wl,
+                    pen_depth,
+                    wls,
+                    chromophore_names=snapshot["selected_chromophores"],
+                    include_background=False,
+                    background_value=snapshot["background_value"],
+                )
             else:
                 A, chrom_names = processing.build_overlap_matrix(
                     led_wl,
@@ -765,14 +782,38 @@ class SpectralUnmixingMainWindow:
                 sample_cube = loader.load_image_cube(sample_dir, wls)
                 reflectance = processing.compute_reflectance(sample_cube, ref_cube, dark_cube)
                 od_cube = processing.compute_optical_density(reflectance)
-                concentrations, rmse_map, fitted_od = processing.solve_unmixing(
-                    od_cube,
-                    A,
-                    method=snapshot["solver_method"],
-                    mus_prime=mus_prime,
-                )
+                solver_info = None
+                active_A = A
+                if snapshot["solver_method"] == "iterative":
+                    concentrations, rmse_map, fitted_od, solver_info = (
+                        processing.solve_unmixing_iterative(
+                            od_cube,
+                            A,
+                            led_wl,
+                            led_em,
+                            chrom_spectra,
+                            wls,
+                            chromophore_names=chrom_names,
+                            include_background=False,
+                            background_value=snapshot["background_value"],
+                            scattering_parameters=snapshot["scattering_parameters"],
+                        )
+                    )
+                    active_A = solver_info.get("A_used", A)
+                else:
+                    concentrations, rmse_map, fitted_od = processing.solve_unmixing(
+                        od_cube,
+                        A,
+                        method=snapshot["solver_method"],
+                        mus_prime=mus_prime,
+                    )
                 derived = processing.compute_derived_maps(concentrations, chrom_names)
-                diagnostics = processing.compute_diagnostics(reflectance, od_cube, rmse_map, A)
+                diagnostics = processing.compute_diagnostics(
+                    reflectance,
+                    od_cube,
+                    rmse_map,
+                    active_A,
+                )
 
                 results[sample_name] = {
                     "sample_cube": sample_cube,
@@ -784,11 +825,12 @@ class SpectralUnmixingMainWindow:
                     "derived": derived,
                     "derived_maps": derived,
                     "diagnostics": diagnostics,
-                    "A": A,
+                    "A": active_A,
                     "chromophore_names": chrom_names,
                     "include_background": snapshot["include_background"],
                     "background_value": snapshot["background_value"],
                     "scattering_parameters": snapshot["scattering_parameters"],
+                    "solver_info": solver_info,
                     "solver_method": snapshot["solver_method"],
                     "wavelengths": wls,
                 }
@@ -840,10 +882,15 @@ class SpectralUnmixingMainWindow:
 
     @staticmethod
     def _default_scattering_parameters() -> Dict[str, float]:
-        """Return the default scattering parameter set used by the mu_a solver."""
+        """Return the default scattering parameter set used by fixed-scattering solvers."""
         from app.core import processing
 
         return processing.get_default_scattering_parameters()
+
+    @staticmethod
+    def _uses_fixed_scattering_solver(solver_method: str) -> bool:
+        """Return True when a solver uses the fixed-scattering controls."""
+        return solver_method in {"mu_a", "iterative"}
 
     @staticmethod
     def _scattering_entry_specs() -> tuple[tuple[str, str, str], ...]:
@@ -874,18 +921,22 @@ class SpectralUnmixingMainWindow:
         """Toggle background vs fixed-scattering controls based on solver."""
         from PySide6.QtWidgets import QLineEdit, QLabel, QToolBar
 
-        use_mu_a = solver_method == "mu_a"
+        use_fixed_scattering = self._uses_fixed_scattering_solver(solver_method)
 
         background_label = self._impl.findChild(QLabel, BACKGROUND_LABEL_OBJECT_NAME)
         background_entry = self._impl.findChild(QLineEdit, BG_ENTRY_OBJECT_NAME)
         scattering_toolbar = self._impl.findChild(QToolBar, SCATTERING_TOOLBAR_OBJECT_NAME)
 
         if background_label is not None:
-            background_label.setVisible(not use_mu_a)
+            background_label.setVisible(not use_fixed_scattering)
+        if self._background_label_action is not None:
+            self._background_label_action.setVisible(not use_fixed_scattering)
         if background_entry is not None:
-            background_entry.setVisible(not use_mu_a)
+            background_entry.setVisible(not use_fixed_scattering)
+        if self._background_entry_action is not None:
+            self._background_entry_action.setVisible(not use_fixed_scattering)
         if scattering_toolbar is not None:
-            scattering_toolbar.setVisible(use_mu_a)
+            scattering_toolbar.setVisible(use_fixed_scattering)
 
     def _on_solver_method_changed(self, solver_method: str) -> None:
         """Update solver-specific controls when the dropdown selection changes."""
