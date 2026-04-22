@@ -180,7 +180,7 @@ class SpectralUnmixingApp(tk.Tk):
         self.solver_combo = ttk.Combobox(
             toolbar,
             textvariable=self.solver_var,
-            values=["ls", "nnls", "mu_a"],
+            values=["ls", "nnls", "mu_a", "iterative"],
             state="readonly",
             width=8,
         )
@@ -247,10 +247,10 @@ class SpectralUnmixingApp(tk.Tk):
         self._update_solver_dependent_controls()
 
     def _update_solver_dependent_controls(self):
-        """Show fixed-scattering controls only for the mu_a solver."""
-        use_mu_a = self.solver_var.get() == "mu_a"
+        """Show fixed-scattering controls for solvers that use them."""
+        use_fixed_scattering = self.solver_var.get() in {"mu_a", "iterative"}
 
-        if use_mu_a:
+        if use_fixed_scattering:
             self.scattering_frame.pack(side=tk.TOP, fill=tk.X)
             self.bg_entry.state(["disabled"])
         else:
@@ -390,12 +390,15 @@ class SpectralUnmixingApp(tk.Tk):
 
             mus_prime = None
             scattering_parameters = None
-            if solver_method == "mu_a":
+            if solver_method in {"mu_a", "iterative"}:
                 bg_value = float(self.background_value_var.get() or 2500.0)
                 include_background = False
                 if not selected_chroms:
-                    raise ValueError("Select at least one chromophore for the mu_a solver.")
+                    raise ValueError(
+                        f"Select at least one chromophore for the {solver_method} solver."
+                    )
                 scattering_parameters = self._read_scattering_params_from_ui()
+            if solver_method == "mu_a":
                 A, chrom_names = processing.build_absorption_matrix(
                     led_wl,
                     led_em,
@@ -408,6 +411,13 @@ class SpectralUnmixingApp(tk.Tk):
                     led_em,
                     wls,
                     **scattering_parameters,
+                )
+            elif solver_method == "iterative":
+                A, chrom_names = processing.build_overlap_matrix(
+                    led_wl, led_em, chrom_spectra, pen_wl, pen_depth, wls,
+                    chromophore_names=selected_chroms,
+                    include_background=False,
+                    background_value=bg_value,
                 )
             else:
                 try:
@@ -441,18 +451,37 @@ class SpectralUnmixingApp(tk.Tk):
                 od_cube = processing.compute_optical_density(reflectance)
 
                 # Unmixing
-                concentrations, rmse_map, fitted_od = processing.solve_unmixing(
-                    od_cube,
-                    A,
-                    method=solver_method,
-                    mus_prime=mus_prime,
-                )
+                solver_info = None
+                active_A = A
+                if solver_method == "iterative":
+                    concentrations, rmse_map, fitted_od, solver_info = (
+                        processing.solve_unmixing_iterative(
+                            od_cube,
+                            A,
+                            led_wl,
+                            led_em,
+                            chrom_spectra,
+                            wls,
+                            chromophore_names=chrom_names,
+                            include_background=False,
+                            background_value=bg_value,
+                            scattering_parameters=scattering_parameters,
+                        )
+                    )
+                    active_A = solver_info.get("A_used", A)
+                else:
+                    concentrations, rmse_map, fitted_od = processing.solve_unmixing(
+                        od_cube,
+                        A,
+                        method=solver_method,
+                        mus_prime=mus_prime,
+                    )
 
                 # Derived maps
                 derived = processing.compute_derived_maps(concentrations, chrom_names)
 
                 # Diagnostics
-                diag = processing.compute_diagnostics(reflectance, od_cube, rmse_map, A)
+                diag = processing.compute_diagnostics(reflectance, od_cube, rmse_map, active_A)
 
                 self.results[sample_name] = {
                     "sample_cube": sample_cube,
@@ -463,11 +492,12 @@ class SpectralUnmixingApp(tk.Tk):
                     "rmse_map": rmse_map,
                     "derived": derived,
                     "diagnostics": diag,
-                    "A": A,
+                    "A": active_A,
                     "chromophore_names": chrom_names,
                     "include_background": include_background,
                     "background_value": bg_value,
                     "scattering_parameters": scattering_parameters,
+                    "solver_info": solver_info,
                     "solver_method": solver_method,
                     "wavelengths": wls,
                 }

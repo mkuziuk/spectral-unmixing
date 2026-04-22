@@ -21,7 +21,7 @@ SCATTERING_ANISOTROPY_G: float = 0.8
 
 
 def get_default_scattering_parameters() -> dict[str, float]:
-    """Return the default fixed-scattering parameter set for the mu_a solver."""
+    """Return the default fixed-scattering parameter set for fixed-scattering solvers."""
     return {
         "lambda0_nm": SCATTERING_REFERENCE_WAVELENGTH_NM,
         "mu_s_500_cm1": SCATTERING_MU_S_500_CM1,
@@ -57,6 +57,30 @@ def validate_scattering_parameters(params: dict) -> dict[str, float]:
         raise ValueError("anisotropy_g must satisfy 0 <= g < 1.")
 
     return validated
+
+
+def build_fixed_scattering_spectrum(
+    common_wl: np.ndarray,
+    lambda0_nm: float = SCATTERING_REFERENCE_WAVELENGTH_NM,
+    mu_s_500_cm1: float = SCATTERING_MU_S_500_CM1,
+    power_b: float = SCATTERING_POWER_B,
+    lipofundin_fraction: float = SCATTERING_LIPOFUNDIN_FRACTION,
+    anisotropy_g: float = SCATTERING_ANISOTROPY_G,
+) -> np.ndarray:
+    """Return the wavelength-resolved reduced scattering prior μs'(λ)."""
+    params = validate_scattering_parameters({
+        "lambda0_nm": lambda0_nm,
+        "mu_s_500_cm1": mu_s_500_cm1,
+        "power_b": power_b,
+        "lipofundin_fraction": lipofundin_fraction,
+        "anisotropy_g": anisotropy_g,
+    })
+
+    wl_safe = np.clip(np.asarray(common_wl, dtype=float), 1e-6, None)
+    mu_s = params["mu_s_500_cm1"] * (wl_safe / params["lambda0_nm"]) ** (-params["power_b"])
+    mu_s *= params["lipofundin_fraction"]
+    mu_s_prime = mu_s * (1.0 - params["anisotropy_g"])
+    return np.nan_to_num(mu_s_prime, nan=0.0, posinf=0.0, neginf=0.0)
 
 
 # ---------------------------------------------------------------------------
@@ -138,9 +162,10 @@ def _interpolate_chromophore_spectra(
     chrom_interp = {}
     for name in chromophore_names:
         wl, coeff = chromophore_spectra[name]
+        wl_prepared, coeff_prepared = _prepare_interp_axis(wl, coeff)
         f = interp1d(
-            wl,
-            coeff,
+            wl_prepared,
+            coeff_prepared,
             kind="linear",
             fill_value="extrapolate",
             bounds_error=False,
@@ -148,6 +173,34 @@ def _interpolate_chromophore_spectra(
         chrom_interp[name] = f(common_wl)
 
     return chromophore_names, chrom_interp
+
+
+def _prepare_interp_axis(
+    x: np.ndarray,
+    y: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Sort and collapse duplicate x-values before interpolation."""
+    x_arr = np.asarray(x, dtype=float).reshape(-1)
+    y_arr = np.asarray(y, dtype=float).reshape(-1)
+
+    if x_arr.shape[0] != y_arr.shape[0]:
+        raise ValueError("Interpolation axis and values must have matching lengths.")
+
+    order = np.argsort(x_arr, kind="mergesort")
+    x_sorted = x_arr[order]
+    y_sorted = y_arr[order]
+
+    unique_x, inverse = np.unique(x_sorted, return_inverse=True)
+    if unique_x.shape[0] < 2:
+        raise ValueError("Interpolation requires at least two unique x-values.")
+    if unique_x.shape[0] == x_sorted.shape[0]:
+        return x_sorted, y_sorted
+
+    sums = np.zeros_like(unique_x, dtype=float)
+    counts = np.zeros_like(unique_x, dtype=float)
+    np.add.at(sums, inverse, y_sorted)
+    np.add.at(counts, inverse, 1.0)
+    return unique_x, sums / counts
 
 
 # ---------------------------------------------------------------------------
@@ -203,8 +256,12 @@ def build_overlap_matrix(
     )
 
     # Interpolate penetration depth onto common grid
+    pen_wl_prepared, pen_depth_prepared = _prepare_interp_axis(
+        penetration_wl,
+        penetration_depth,
+    )
     f_depth = interp1d(
-        penetration_wl, penetration_depth,
+        pen_wl_prepared, pen_depth_prepared,
         kind="linear", fill_value="extrapolate", bounds_error=False,
     )
     depth_interp = f_depth(common_wl)
@@ -281,29 +338,254 @@ def build_fixed_scattering_profile(
     """
     Build the LED-band reduced scattering prior μs'(λ) for the fixed-scattering solver.
     """
-    params = validate_scattering_parameters({
-        "lambda0_nm": lambda0_nm,
-        "mu_s_500_cm1": mu_s_500_cm1,
-        "power_b": power_b,
-        "lipofundin_fraction": lipofundin_fraction,
-        "anisotropy_g": anisotropy_g,
-    })
-
     common_wl, led_profiles = _normalized_led_profiles(
         led_emission_wl,
         led_emission,
         led_wavelengths,
     )
 
-    mu_s = params["mu_s_500_cm1"] * (common_wl / params["lambda0_nm"]) ** (-params["power_b"])
-    mu_s *= params["lipofundin_fraction"]
-    mu_s_prime_wl = mu_s * (1.0 - params["anisotropy_g"])
+    mu_s_prime_wl = build_fixed_scattering_spectrum(
+        common_wl,
+        lambda0_nm=lambda0_nm,
+        mu_s_500_cm1=mu_s_500_cm1,
+        power_b=power_b,
+        lipofundin_fraction=lipofundin_fraction,
+        anisotropy_g=anisotropy_g,
+    )
 
     mu_s_prime = np.zeros(len(led_wavelengths))
     for i, phi in enumerate(led_profiles):
         mu_s_prime[i] = np.trapezoid(phi * mu_s_prime_wl, common_wl)
 
     return mu_s_prime
+
+
+def _validate_finite(name: str, values: np.ndarray) -> np.ndarray:
+    """Raise when an intermediate array contains NaN or inf values."""
+    arr = np.asarray(values, dtype=float)
+    if not np.all(np.isfinite(arr)):
+        raise ValueError(f"{name} contains non-finite values.")
+    return arr
+
+
+def _mean_finite_concentrations(concentrations: np.ndarray) -> np.ndarray:
+    """Return per-component spatial means while ignoring non-finite values."""
+    conc = np.asarray(concentrations, dtype=float)
+    finite = np.isfinite(conc)
+    counts = finite.sum(axis=(0, 1))
+    sums = np.where(finite, conc, 0.0).sum(axis=(0, 1))
+
+    means = np.zeros(conc.shape[2], dtype=float)
+    np.divide(sums, counts, out=means, where=counts > 0)
+    return means
+
+
+def estimate_effective_pathlength(
+    concentrations: np.ndarray,
+    chromophore_names: list,
+    chromophore_spectra: dict,
+    common_wl: np.ndarray,
+    lambda0_nm: float = SCATTERING_REFERENCE_WAVELENGTH_NM,
+    mu_s_500_cm1: float = SCATTERING_MU_S_500_CM1,
+    power_b: float = SCATTERING_POWER_B,
+    lipofundin_fraction: float = SCATTERING_LIPOFUNDIN_FRACTION,
+    anisotropy_g: float = SCATTERING_ANISOTROPY_G,
+    eps: float = 1e-10,
+) -> np.ndarray:
+    """Estimate wavelength-dependent effective pathlength from mean absorption."""
+    if concentrations.ndim != 3:
+        raise ValueError("concentrations must have shape (H, W, N_components).")
+
+    common_wl = np.asarray(common_wl, dtype=float)
+    c_mean = _mean_finite_concentrations(concentrations)
+    if c_mean.shape[0] != len(chromophore_names):
+        raise ValueError(
+            "The number of concentration channels must match chromophore_names."
+        )
+
+    mu_a = np.zeros_like(common_wl, dtype=float)
+    for idx, name in enumerate(chromophore_names):
+        if name not in chromophore_spectra:
+            raise KeyError(f"Chromophore spectrum not found: {name}")
+        wl, coeff = chromophore_spectra[name]
+        wl_prepared, coeff_prepared = _prepare_interp_axis(wl, coeff)
+        interpolator = interp1d(
+            wl_prepared,
+            coeff_prepared,
+            kind="linear",
+            fill_value="extrapolate",
+            bounds_error=False,
+        )
+        coeff_interp = np.asarray(interpolator(common_wl), dtype=float)
+        coeff_interp = np.nan_to_num(coeff_interp, nan=0.0, posinf=0.0, neginf=0.0)
+        mu_a += max(float(c_mean[idx]), 0.0) * np.clip(coeff_interp, 0.0, None)
+
+    mu_a = np.clip(mu_a, eps, None)
+    mu_s_prime = build_fixed_scattering_spectrum(
+        common_wl,
+        lambda0_nm=lambda0_nm,
+        mu_s_500_cm1=mu_s_500_cm1,
+        power_b=power_b,
+        lipofundin_fraction=lipofundin_fraction,
+        anisotropy_g=anisotropy_g,
+    )
+    mu_s_prime = np.clip(mu_s_prime, eps, None)
+
+    mu_eff = np.sqrt(3.0 * mu_a * (mu_a + mu_s_prime))
+    l_eff = 1.0 / np.clip(mu_eff, eps, None)
+    return _validate_finite("effective_pathlength", l_eff)
+
+
+def solve_unmixing_iterative(
+    od_cube: np.ndarray,
+    static_A: np.ndarray,
+    led_emission_wl: np.ndarray,
+    led_emission: dict,
+    chromophore_spectra: dict,
+    led_wavelengths: list,
+    chromophore_names: list | None = None,
+    include_background: bool = False,
+    background_value: float = 2500.0,
+    max_iter: int = 25,
+    tol_rel: float = 1e-4,
+    tol_rmse: float = 1e-6,
+    damping: float = 0.5,
+    initial_concentration: float = 1e-4,
+    scattering_parameters: dict | None = None,
+) -> tuple:
+    """Iterative overlap-matrix unmixing with a diffusion-inspired pathlength."""
+    if max_iter < 1:
+        raise ValueError("max_iter must be >= 1.")
+    if not (0.0 < damping <= 1.0):
+        raise ValueError("damping must satisfy 0 < damping <= 1.")
+
+    common_wl = np.asarray(led_emission_wl, dtype=float)
+    chrom_names = (
+        list(chromophore_spectra.keys())
+        if chromophore_names is None
+        else list(chromophore_names)
+    )
+    if not chrom_names and not include_background:
+        raise ValueError(
+            "Iterative solver requires at least one chromophore or a background channel."
+        )
+
+    params = get_default_scattering_parameters()
+    if scattering_parameters is not None:
+        params.update(scattering_parameters)
+    params = validate_scattering_parameters(params)
+
+    H, W, _ = od_cube.shape
+    n_chrom = len(chrom_names)
+
+    history = []
+    stop_reason = "max_iter"
+    iterative_error = None
+    fallback_used = False
+    fallback_reason = None
+    prev_mean_rmse = None
+    A_last = np.asarray(static_A, dtype=float)
+    pathlength_used = common_wl.copy()
+
+    current_conc_map = np.full(
+        (H, W, n_chrom),
+        max(float(initial_concentration), 0.0),
+        dtype=float,
+    )
+    l_curr = estimate_effective_pathlength(
+        concentrations=current_conc_map,
+        chromophore_names=chrom_names,
+        chromophore_spectra=chromophore_spectra,
+        common_wl=common_wl,
+        **params,
+    )
+
+    try:
+        for it in range(max_iter):
+            A_iter, _ = build_overlap_matrix(
+                led_emission_wl=common_wl,
+                led_emission=led_emission,
+                chromophore_spectra=chromophore_spectra,
+                penetration_wl=common_wl,
+                penetration_depth=l_curr,
+                led_wavelengths=led_wavelengths,
+                chromophore_names=chrom_names,
+                include_background=include_background,
+                background_value=background_value,
+            )
+            A_iter = _validate_finite("overlap_matrix", A_iter)
+            concentrations, rmse_map, fitted_od = _solve_unmixing_nnls(od_cube, A_iter)
+            concentrations = _validate_finite("concentrations", concentrations)
+            rmse_map = _validate_finite("rmse_map", rmse_map)
+
+            A_last = A_iter
+            pathlength_used = l_curr.copy()
+
+            conc_only = concentrations[:, :, :n_chrom]
+            l_model = estimate_effective_pathlength(
+                concentrations=conc_only,
+                chromophore_names=chrom_names,
+                chromophore_spectra=chromophore_spectra,
+                common_wl=common_wl,
+                **params,
+            )
+            l_next = _validate_finite(
+                "damped_pathlength",
+                (1.0 - damping) * l_curr + damping * l_model,
+            )
+
+            rel_change = np.linalg.norm(l_next - l_curr) / (np.linalg.norm(l_curr) + 1e-12)
+            mean_rmse = float(np.nanmean(rmse_map))
+            rmse_improvement = (
+                float("inf") if prev_mean_rmse is None else float(prev_mean_rmse - mean_rmse)
+            )
+            history.append(
+                {
+                    "iter": it + 1,
+                    "rel_change_l": float(rel_change),
+                    "mean_rmse": mean_rmse,
+                    "rmse_improvement": rmse_improvement,
+                }
+            )
+
+            if rel_change < tol_rel:
+                stop_reason = "tol_rel"
+                break
+            if prev_mean_rmse is not None and 0.0 <= rmse_improvement < tol_rmse:
+                stop_reason = "tol_rmse"
+                break
+
+            prev_mean_rmse = mean_rmse
+            l_curr = l_next
+
+    except Exception as exc:
+        stop_reason = "iterative_error"
+        iterative_error = str(exc)
+        fallback_used = True
+        fallback_reason = "Iterative unmixing failed; static overlap matrix fallback was used."
+        concentrations, rmse_map, fitted_od = _solve_unmixing_nnls(od_cube, A_last)
+        pathlength_used = l_curr
+
+    solver_info = {
+        "method": "iterative",
+        "base_method": "nnls",
+        "stop_reason": stop_reason,
+        "fallback_used": fallback_used,
+        "fallback_reason": fallback_reason,
+        "iterative_error": iterative_error,
+        "n_iter": len(history),
+        "max_iter": int(max_iter),
+        "history": history,
+        "stop_thresholds": {
+            "tol_rel": float(tol_rel),
+            "tol_rmse": float(tol_rmse),
+            "max_iter": int(max_iter),
+        },
+        "pathlength_spectrum": pathlength_used,
+        "A_used": A_last,
+        "scattering_parameters": dict(params),
+    }
+    return concentrations, rmse_map, fitted_od, solver_info
 
 
 # ---------------------------------------------------------------------------

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -52,6 +53,75 @@ class TestFixedScatteringSolver(unittest.TestCase):
         ])
         self.assertEqual(chrom_names, ["HbO2", "Hb"])
         self.assertTrue(np.allclose(E, expected))
+
+    def test_build_fixed_scattering_spectrum_matches_band_profile(self):
+        led_emission_wl = np.array([500.0, 600.0])
+        led_emission = {
+            500: np.array([1.0, 0.0]),
+            600: np.array([0.0, 1.0]),
+        }
+        params = processing.get_default_scattering_parameters()
+
+        mu_s_prime_wl = processing.build_fixed_scattering_spectrum(
+            led_emission_wl,
+            **params,
+        )
+        mu_s_prime_band = processing.build_fixed_scattering_profile(
+            led_emission_wl,
+            led_emission,
+            led_wavelengths=[500, 600],
+            **params,
+        )
+
+        self.assertTrue(np.allclose(mu_s_prime_wl, mu_s_prime_band))
+
+    def test_build_overlap_matrix_handles_duplicate_penetration_wavelengths(self):
+        led_emission_wl = np.array([500.0, 600.0])
+        led_emission = {
+            500: np.array([1.0, 0.0]),
+            600: np.array([0.0, 1.0]),
+        }
+        chromophore_spectra = {
+            "HbO2": (np.array([500.0, 600.0]), np.array([2.0, 4.0])),
+        }
+        penetration_wl = np.array([500.0, 550.0, 550.0, 600.0])
+        penetration_depth = np.array([1.0, 2.0, 4.0, 3.0])
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            overlap_matrix, chrom_names = processing.build_overlap_matrix(
+                led_emission_wl,
+                led_emission,
+                chromophore_spectra,
+                penetration_wl,
+                penetration_depth,
+                led_wavelengths=[500, 600],
+                chromophore_names=["HbO2"],
+                include_background=False,
+            )
+
+        self.assertEqual(chrom_names, ["HbO2"])
+        self.assertTrue(np.all(np.isfinite(overlap_matrix)))
+
+    def test_estimate_effective_pathlength_handles_duplicate_chromophore_wavelengths(self):
+        concentrations = np.array([[[0.2]]])
+        chromophore_spectra = {
+            "HbO2": (
+                np.array([500.0, 550.0, 550.0, 600.0]),
+                np.array([1.0, 2.0, 4.0, 3.0]),
+            ),
+        }
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            pathlength = processing.estimate_effective_pathlength(
+                concentrations,
+                ["HbO2"],
+                chromophore_spectra,
+                np.array([500.0, 550.0, 600.0]),
+            )
+
+        self.assertTrue(np.all(np.isfinite(pathlength)))
 
     def test_mu_a_solver_recovers_known_concentrations(self):
         absorption_matrix = np.array([
@@ -107,6 +177,74 @@ class TestFixedScatteringSolver(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             processing.solve_unmixing(od_cube, absorption_matrix, method="mu_a")
+
+    def test_iterative_solver_recovers_self_consistent_concentrations(self):
+        common_wl = np.array([500.0, 600.0, 700.0])
+        led_emission = {
+            500: np.array([1.0, 0.0, 0.0]),
+            600: np.array([0.0, 1.0, 0.0]),
+            700: np.array([0.0, 0.0, 1.0]),
+        }
+        chromophore_spectra = {
+            "HbO2": (common_wl, np.array([1.5, 0.7, 0.5])),
+            "Hb": (common_wl, np.array([0.4, 1.1, 0.9])),
+        }
+        chrom_names = ["HbO2", "Hb"]
+        params = processing.get_default_scattering_parameters()
+        true_concentrations = np.array([0.12, 0.08])
+
+        pathlength = processing.estimate_effective_pathlength(
+            true_concentrations.reshape(1, 1, -1),
+            chrom_names,
+            chromophore_spectra,
+            common_wl,
+            **params,
+        )
+        A_true, _ = processing.build_overlap_matrix(
+            common_wl,
+            led_emission,
+            chromophore_spectra,
+            common_wl,
+            pathlength,
+            led_wavelengths=[500, 600, 700],
+            chromophore_names=chrom_names,
+            include_background=False,
+        )
+        od = A_true @ true_concentrations
+        od_cube = od.reshape(1, 1, -1)
+
+        static_A, _ = processing.build_overlap_matrix(
+            common_wl,
+            led_emission,
+            chromophore_spectra,
+            common_wl,
+            np.ones_like(common_wl),
+            led_wavelengths=[500, 600, 700],
+            chromophore_names=chrom_names,
+            include_background=False,
+        )
+
+        concentrations, rmse_map, fitted_od, solver_info = processing.solve_unmixing_iterative(
+            od_cube,
+            static_A,
+            common_wl,
+            led_emission,
+            chromophore_spectra,
+            led_wavelengths=[500, 600, 700],
+            chromophore_names=chrom_names,
+            include_background=False,
+            scattering_parameters=params,
+            max_iter=50,
+            tol_rel=1e-8,
+            tol_rmse=1e-12,
+        )
+
+        self.assertTrue(
+            np.allclose(concentrations[0, 0, :], true_concentrations, atol=1e-5)
+        )
+        self.assertTrue(np.allclose(fitted_od[0, 0, :], od, atol=1e-8))
+        self.assertLess(float(rmse_map[0, 0]), 1e-8)
+        self.assertEqual(solver_info["scattering_parameters"], params)
 
 
 if __name__ == "__main__":
