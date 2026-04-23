@@ -486,6 +486,13 @@ def solve_unmixing_iterative(
     prev_mean_rmse = None
     A_last = np.asarray(static_A, dtype=float)
     pathlength_used = common_wl.copy()
+    best_concentrations = None
+    best_rmse_map = None
+    best_fitted_od = None
+    best_A = A_last.copy()
+    best_pathlength = pathlength_used.copy()
+    best_iter = 0
+    best_mean_rmse = float("inf")
 
     current_conc_map = np.full(
         (H, W, n_chrom),
@@ -520,6 +527,15 @@ def solve_unmixing_iterative(
 
             A_last = A_iter
             pathlength_used = l_curr.copy()
+            mean_rmse = float(np.nanmean(rmse_map))
+            if mean_rmse < best_mean_rmse:
+                best_concentrations = concentrations.copy()
+                best_rmse_map = rmse_map.copy()
+                best_fitted_od = fitted_od.copy()
+                best_A = A_iter.copy()
+                best_pathlength = l_curr.copy()
+                best_iter = it + 1
+                best_mean_rmse = mean_rmse
 
             conc_only = concentrations[:, :, :n_chrom]
             l_model = estimate_effective_pathlength(
@@ -535,7 +551,6 @@ def solve_unmixing_iterative(
             )
 
             rel_change = np.linalg.norm(l_next - l_curr) / (np.linalg.norm(l_curr) + 1e-12)
-            mean_rmse = float(np.nanmean(rmse_map))
             rmse_improvement = (
                 float("inf") if prev_mean_rmse is None else float(prev_mean_rmse - mean_rmse)
             )
@@ -562,9 +577,31 @@ def solve_unmixing_iterative(
         stop_reason = "iterative_error"
         iterative_error = str(exc)
         fallback_used = True
-        fallback_reason = "Iterative unmixing failed; static overlap matrix fallback was used."
-        concentrations, rmse_map, fitted_od = _solve_unmixing_nnls(od_cube, A_last)
-        pathlength_used = l_curr
+        if best_concentrations is not None:
+            fallback_reason = (
+                "Iterative unmixing stopped after an error; the best successful iterate was used."
+            )
+            concentrations = best_concentrations
+            rmse_map = best_rmse_map
+            fitted_od = best_fitted_od
+            A_last = best_A
+            pathlength_used = best_pathlength
+        else:
+            fallback_reason = "Iterative unmixing failed; static overlap matrix fallback was used."
+            concentrations, rmse_map, fitted_od = _solve_unmixing_nnls(od_cube, A_last)
+            pathlength_used = l_curr
+
+    if best_concentrations is not None and stop_reason != "iterative_error":
+        concentrations = best_concentrations
+        rmse_map = best_rmse_map
+        fitted_od = best_fitted_od
+        A_last = best_A
+        pathlength_used = best_pathlength
+
+    returned_iter = best_iter if best_iter > 0 else len(history)
+    returned_mean_rmse = (
+        best_mean_rmse if best_iter > 0 else float(np.nanmean(rmse_map))
+    )
 
     solver_info = {
         "method": "iterative",
@@ -576,6 +613,10 @@ def solve_unmixing_iterative(
         "n_iter": len(history),
         "max_iter": int(max_iter),
         "history": history,
+        "best_iter": int(best_iter) if best_iter > 0 else None,
+        "best_mean_rmse": float(best_mean_rmse) if best_iter > 0 else None,
+        "returned_iter": int(returned_iter),
+        "returned_mean_rmse": float(returned_mean_rmse),
         "stop_thresholds": {
             "tol_rel": float(tol_rel),
             "tol_rmse": float(tol_rmse),
