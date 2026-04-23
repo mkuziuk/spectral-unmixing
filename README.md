@@ -11,13 +11,13 @@ A biomedical hyperspectral desktop application that processes raw multidimension
 
 By providing an intuitive, minimal Graphical User Interface (GUI), this application allows analyzing samples without deep coding knowledge.
 
-## Release 0.2.0
+## Release 0.2.2
 
-This branch includes the new **PySide6 UI** as the primary application interface.
+Release `0.2.2` removes the legacy tkinter rollback path and keeps **PySide6** as the single supported desktop UI.
 
-- `python app/main.py` launches the new Qt interface by default
-- the legacy tkinter UI remains available only as a rollback path via `--legacy-tk`
-- maps, inspector, diagnostics, reflectance statistics, and chromophore bar charts are all available in the new UI
+- `python app/main.py` launches the PySide6 application directly
+- the old `--legacy-tk` flag and `SPECTRAL_UNMIXING_LEGACY_TK` environment fallback are no longer supported
+- release packaging and documentation now target the Qt application only
 
 ## Capabilities
 
@@ -84,7 +84,7 @@ $$
 
 ## Installation Instructions
 
-The application requires **Python 3.8+** and utilizes standard scientific and interface UI libraries (`numpy`, `scipy`, `matplotlib`, `pillow`, `PySide6`). The legacy rollback UI additionally relies on `tkinter`.
+The application requires **Python 3.8+** and utilizes standard scientific and interface UI libraries (`numpy`, `scipy`, `matplotlib`, `pillow`, `PySide6`).
 
 ### Windows
 
@@ -133,10 +133,10 @@ The application requires **Python 3.8+** and utilizes standard scientific and in
 
 ### Linux (Ubuntu / Debian)
 
-1. Ensure the base python package, environments pack, and Tkinter GUI handlers are installed:
+1. Ensure the base Python and virtual environment packages are installed:
    ```bash
    sudo apt update
-   sudo apt install python3 python3-venv python3-tk
+   sudo apt install python3 python3-venv
    ```
 2. Open your terminal emulator and navigate to the target directory.
 3. Create a virtual environment:
@@ -159,14 +159,7 @@ The application requires **Python 3.8+** and utilizes standard scientific and in
    ```
 
 ### Troubleshooting
-If the default Qt UI fails to launch, confirm that `PySide6` installed successfully in your active environment. If the legacy rollback UI fails to appear, ensure that your OS graphics packages correctly bind Python `tkinter`. Linux machines often decouple UI bindings (`python3-tk` or `python-tkinter` depending upon RPM/Deb distributions). For macOS, native homebrew `python` typically packages tk implementations inherently.
-
-### Launch Modes
-
-- **Default**: `python app/main.py` starts the **PySide6 (Qt)** UI.
-- **Rollback (legacy tkinter)**:
-  - CLI flag: `python app/main.py --legacy-tk`
-  - Environment variable: `SPECTRAL_UNMIXING_LEGACY_TK=1 python app/main.py`
+If the Qt UI fails to launch, confirm that `PySide6` installed successfully in your active environment. On Linux, make sure your machine has the system display libraries needed by Qt and that you are starting the app inside a graphical session.
 
 ## Custom Data Folder Support
 

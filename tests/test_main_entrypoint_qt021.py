@@ -1,7 +1,8 @@
-"""Tests for QT-021 entrypoint cutover and rollback routing."""
+"""Tests for QT-021 entrypoint routing for the Qt-only launcher."""
 
 from __future__ import annotations
 
+import pytest
 import sys
 import types
 from pathlib import Path
@@ -12,63 +13,30 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
-def test_parse_args_legacy_flag_sets_mode():
+def test_parse_args_accepts_no_flags():
     from app.main import parse_args
 
-    args = parse_args(["--legacy-tk"])
-    assert args.legacy_tk is True
-
-
-def test_mode_selection_env_var_enables_legacy():
-    from app.main import parse_args, should_use_legacy_tk
-
     args = parse_args([])
-    env = {"SPECTRAL_UNMIXING_LEGACY_TK": "true"}
-
-    assert should_use_legacy_tk(args, environ=env) is True
+    assert vars(args) == {}
 
 
-def test_main_legacy_flag_routes_to_tkinter_runner():
-    from app import main as entrypoint
+def test_parse_args_rejects_removed_legacy_flag():
+    from app.main import parse_args
 
-    with (
-        mock.patch.object(entrypoint, "run_legacy_tk", return_value=0) as run_legacy,
-        mock.patch.object(entrypoint, "run_qt", return_value=0) as run_qt,
-    ):
-        code = entrypoint.main(["--legacy-tk"], environ={})
+    with pytest.raises(SystemExit) as excinfo:
+        parse_args(["--legacy-tk"])
 
-    assert code == 0
-    run_legacy.assert_called_once_with()
-    run_qt.assert_not_called()
+    assert excinfo.value.code == 2
 
 
 def test_main_default_routes_to_qt_runner():
     from app import main as entrypoint
 
-    with (
-        mock.patch.object(entrypoint, "run_legacy_tk", return_value=0) as run_legacy,
-        mock.patch.object(entrypoint, "run_qt", return_value=0) as run_qt,
-    ):
-        code = entrypoint.main([], environ={})
+    with mock.patch.object(entrypoint, "run_qt", return_value=0) as run_qt:
+        code = entrypoint.main([])
 
     assert code == 0
     run_qt.assert_called_once_with()
-    run_legacy.assert_not_called()
-
-
-def test_run_legacy_tk_constructs_existing_tk_app_and_starts_mainloop():
-    from app.main import run_legacy_tk
-
-    fake_module = types.ModuleType("app.gui.app_window")
-    app_cls = mock.Mock()
-    fake_module.SpectralUnmixingApp = app_cls
-
-    with mock.patch.dict(sys.modules, {"app.gui.app_window": fake_module}):
-        code = run_legacy_tk()
-
-    assert code == 0
-    app_cls.assert_called_once_with()
-    app_cls.return_value.mainloop.assert_called_once_with()
 
 
 def test_run_qt_creates_qapplication_and_shows_main_window():
@@ -114,7 +82,7 @@ def test_run_qt_creates_qapplication_and_shows_main_window():
     fake_window._impl.show.assert_called_once_with()
 
 
-def test_run_qt_reports_missing_pyside6_when_not_in_legacy_mode(capsys):
+def test_run_qt_reports_missing_pyside6(capsys):
     from app.main import run_qt
 
     with mock.patch("app.main.importlib.util.find_spec", return_value=None):
@@ -123,4 +91,4 @@ def test_run_qt_reports_missing_pyside6_when_not_in_legacy_mode(capsys):
     captured = capsys.readouterr()
     assert code == 2
     assert "PySide6 is required" in captured.err
-    assert "--legacy-tk" in captured.err
+    assert "pip install PySide6" in captured.err

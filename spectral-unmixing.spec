@@ -5,9 +5,6 @@ PyInstaller spec for Spectral Unmixing App (Windows).
 Generated for Windows build via GitHub Actions.
 """
 
-import os
-import sys
-
 a = Analysis(
     ['app/main.py'],
     pathex=[],
@@ -17,12 +14,19 @@ a = Analysis(
         'app.core.io',
         'app.core.processing',
         'app.core.export',
-        'app.gui.app_window',
-        'app.gui.viz_panel',
-        'app.gui.inspector',
-        'app.gui.diagnostics',
-        'app.gui.stats_panel',
-        'matplotlib.backends.backend_tkagg',
+        'PySide6.QtCore',
+        'PySide6.QtGui',
+        'PySide6.QtWidgets',
+        'app.gui_qt.main_window',
+        'app.gui_qt.worker',
+        'app.gui_qt.widgets.chromophore_menu',
+        'app.gui_qt.mpl.canvas',
+        'app.gui_qt.panels.chromophore_barcharts_panel',
+        'app.gui_qt.panels.diagnostics_panel',
+        'app.gui_qt.panels.inspector_panel',
+        'app.gui_qt.panels.maps_panel',
+        'app.gui_qt.panels.stats_panel',
+        'matplotlib.backends.backend_qtagg',
         'scipy.optimize',
         'scipy.interpolate',
     ],
@@ -30,6 +34,7 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
+        'tkinter',
         'tkinter.test',
         'matplotlib.tests',
         'numpy.tests',
