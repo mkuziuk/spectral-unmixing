@@ -46,6 +46,7 @@ INITIAL_SPLITTER_SIZES: list[int] = [280, 1120]
 
 # Toolbar object names (QT-003)
 TOOLBAR_OBJECT_NAME: str = "main_toolbar"
+RUN_TOOLBAR_OBJECT_NAME: str = "run_toolbar"
 SELECT_ROOT_BTN_OBJECT_NAME: str = "select_root_btn"
 SELECT_DATA_BTN_OBJECT_NAME: str = "select_data_btn"
 USE_DEFAULT_BTN_OBJECT_NAME: str = "use_default_btn"
@@ -59,11 +60,18 @@ BG_EXP_START_LABEL_OBJECT_NAME: str = "bg_exp_start_label"
 BG_EXP_START_ENTRY_OBJECT_NAME: str = "bg_exp_start_entry"
 BG_EXP_END_LABEL_OBJECT_NAME: str = "bg_exp_end_label"
 BG_EXP_END_ENTRY_OBJECT_NAME: str = "bg_exp_end_entry"
+BG_EXP_SHAPE_LABEL_OBJECT_NAME: str = "bg_exp_shape_label"
+BG_EXP_SHAPE_ENTRY_OBJECT_NAME: str = "bg_exp_shape_entry"
+BG_EXP_OFFSET_LABEL_OBJECT_NAME: str = "bg_exp_offset_label"
+BG_EXP_OFFSET_ENTRY_OBJECT_NAME: str = "bg_exp_offset_entry"
 RUN_BTN_OBJECT_NAME: str = "run_btn"
 SAVE_BTN_OBJECT_NAME: str = "save_btn"
 PROGRESS_BAR_OBJECT_NAME: str = "progress_bar"
 DATA_SOURCE_LABEL_OBJECT_NAME: str = "data_source_label"
 STATUS_LABEL_OBJECT_NAME: str = "status_label"
+THEME_LABEL_OBJECT_NAME: str = "theme_label"
+THEME_COMBO_OBJECT_NAME: str = "theme_combo"
+BACKGROUND_TOOLBAR_OBJECT_NAME: str = "background_toolbar"
 SCATTERING_TOOLBAR_OBJECT_NAME: str = "scattering_toolbar"
 SCATTERING_TITLE_OBJECT_NAME: str = "scattering_title"
 SCATTERING_LAMBDA0_LABEL_OBJECT_NAME: str = "scattering_lambda0_label"
@@ -76,6 +84,7 @@ SCATTERING_LIPOFUNDIN_LABEL_OBJECT_NAME: str = "scattering_lipofundin_label"
 SCATTERING_LIPOFUNDIN_ENTRY_OBJECT_NAME: str = "scattering_lipofundin_entry"
 SCATTERING_ANISOTROPY_LABEL_OBJECT_NAME: str = "scattering_anisotropy_label"
 SCATTERING_ANISOTROPY_ENTRY_OBJECT_NAME: str = "scattering_anisotropy_entry"
+SCATTERING_ADVANCED_TOOLBAR_OBJECT_NAME: str = "scattering_advanced_toolbar"
 ITERATIVE_TOOLBAR_OBJECT_NAME: str = "iterative_toolbar"
 ITERATIVE_TITLE_OBJECT_NAME: str = "iterative_title"
 ITERATIVE_MAX_ITER_LABEL_OBJECT_NAME: str = "iterative_max_iter_label"
@@ -89,6 +98,7 @@ ITERATIVE_DAMPING_ENTRY_OBJECT_NAME: str = "iterative_damping_entry"
 ITERATIVE_INITIAL_CONC_LABEL_OBJECT_NAME: str = "iterative_initial_conc_label"
 ITERATIVE_INITIAL_CONC_ENTRY_OBJECT_NAME: str = "iterative_initial_conc_entry"
 ITERATIVE_RESET_BTN_OBJECT_NAME: str = "iterative_reset_btn"
+ITERATIVE_ADVANCED_TOOLBAR_OBJECT_NAME: str = "iterative_advanced_toolbar"
 
 
 # ---------------------------------------------------------------------------
@@ -129,16 +139,30 @@ class SpectralUnmixingMainWindow:
 
         self._chromophore_menu: Any = None
         self._background_label_action: Any = None
+        self._background_label_help_action: Any = None
         self._background_model_action: Any = None
+        self._background_model_help_action: Any = None
         self._background_entry_action: Any = None
+        self._background_entry_help_action: Any = None
         self._background_exp_start_label_action: Any = None
+        self._background_exp_start_help_action: Any = None
         self._background_exp_start_entry_action: Any = None
         self._background_exp_end_label_action: Any = None
+        self._background_exp_end_help_action: Any = None
         self._background_exp_end_entry_action: Any = None
+        self._background_exp_shape_label_action: Any = None
+        self._background_exp_shape_help_action: Any = None
+        self._background_exp_shape_entry_action: Any = None
+        self._background_exp_offset_label_action: Any = None
+        self._background_exp_offset_help_action: Any = None
+        self._background_exp_offset_entry_action: Any = None
         self._bg_value: float = 2500.0
         self._background_params: Dict[str, float | str] = self._default_background_parameters()
         self._scattering_params: Dict[str, float] = self._default_scattering_parameters()
         self._iterative_params: Dict[str, float | int] = self._default_iterative_parameters()
+        self._theme_mode: str = "system"
+        self._theme_name: str = self._resolve_theme_name("system")
+        self._help_labels: list[Any] = []
         self._set_window_properties()
         self._setup_ui()
 
@@ -209,9 +233,30 @@ class SpectralUnmixingMainWindow:
 
     def _set_window_properties(self) -> None:
         """Set window title and geometry (import-safe)."""
+        from PySide6.QtCore import Qt
+
         self._impl.setWindowTitle("Spectral Unmixing")
         self._impl.resize(1400, 900)
         self._impl.setMinimumSize(1000, 700)
+        self._impl.setWindowState(self._impl.windowState() | Qt.WindowState.WindowMaximized)
+
+    def show_full_size(self) -> None:
+        """Show the window using the available screen area and maximized state."""
+        self._apply_full_size_geometry()
+        self._impl.showMaximized()
+
+    def _apply_full_size_geometry(self) -> None:
+        """Resize to the available screen geometry before asking the WM to maximize."""
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QApplication
+
+        screen = self._impl.screen()
+        if screen is None:
+            app = QApplication.instance()
+            screen = app.primaryScreen() if app is not None else None
+        if screen is not None:
+            self._impl.setGeometry(screen.availableGeometry())
+        self._impl.setWindowState(self._impl.windowState() | Qt.WindowState.WindowMaximized)
 
     def _setup_ui(self) -> None:
         """Set up the two-pane splitter shell with sidebar and tab widget."""
@@ -221,12 +266,24 @@ class SpectralUnmixingMainWindow:
         # Toolbar (QT-003) lives above the central splitter.
         toolbar = self._build_toolbar(self._impl)
         self._impl.addToolBar(Qt.TopToolBarArea, toolbar)
+        run_toolbar = self._build_run_toolbar(self._impl)
+        self._impl.addToolBarBreak(Qt.TopToolBarArea)
+        self._impl.addToolBar(Qt.TopToolBarArea, run_toolbar)
+        background_toolbar = self._build_background_toolbar(self._impl)
+        self._impl.addToolBarBreak(Qt.TopToolBarArea)
+        self._impl.addToolBar(Qt.TopToolBarArea, background_toolbar)
         scattering_toolbar = self._build_scattering_toolbar(self._impl)
         self._impl.addToolBarBreak(Qt.TopToolBarArea)
         self._impl.addToolBar(Qt.TopToolBarArea, scattering_toolbar)
+        scattering_advanced_toolbar = self._build_scattering_advanced_toolbar(self._impl)
+        self._impl.addToolBarBreak(Qt.TopToolBarArea)
+        self._impl.addToolBar(Qt.TopToolBarArea, scattering_advanced_toolbar)
         iterative_toolbar = self._build_iterative_toolbar(self._impl)
         self._impl.addToolBarBreak(Qt.TopToolBarArea)
         self._impl.addToolBar(Qt.TopToolBarArea, iterative_toolbar)
+        iterative_advanced_toolbar = self._build_iterative_advanced_toolbar(self._impl)
+        self._impl.addToolBarBreak(Qt.TopToolBarArea)
+        self._impl.addToolBar(Qt.TopToolBarArea, iterative_advanced_toolbar)
 
         # -- central splitter ------------------------------------------------
         splitter = QSplitter(Qt.Orientation.Horizontal, self._impl)
@@ -258,6 +315,7 @@ class SpectralUnmixingMainWindow:
         splitter.setStretchFactor(1, 1)  # tab area: expands
 
         self._set_solver_dependent_controls("ls")
+        self._apply_theme("system")
 
     def _build_toolbar(self, parent: Any):
         """Construct top toolbar with stable QT-003 control ordering."""
@@ -265,8 +323,6 @@ class SpectralUnmixingMainWindow:
         from PySide6.QtWidgets import (
             QComboBox,
             QLabel,
-            QLineEdit,
-            QProgressBar,
             QPushButton,
             QToolBar,
         )
@@ -316,21 +372,103 @@ class SpectralUnmixingMainWindow:
         solver_combo.currentTextChanged.connect(self._on_solver_method_changed)
         toolbar.addWidget(solver_combo)
 
-        # 7) background_label
+        return toolbar
+
+    def _build_run_toolbar(self, parent: Any):
+        """Construct run/save/status controls in a compact toolbar row."""
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QComboBox, QLabel, QProgressBar, QPushButton, QToolBar
+
+        toolbar = QToolBar("Run Toolbar", parent)
+        toolbar.setObjectName(RUN_TOOLBAR_OBJECT_NAME)
+        toolbar.setMovable(False)
+        toolbar.setFloatable(False)
+        toolbar.setAllowedAreas(Qt.ToolBarArea.TopToolBarArea)
+
+        run_btn = QPushButton("Run", toolbar)
+        run_btn.setObjectName(RUN_BTN_OBJECT_NAME)
+        run_btn.setEnabled(False)
+        run_btn.clicked.connect(self._on_run_clicked)
+        toolbar.addWidget(run_btn)
+
+        save_btn = QPushButton("Save", toolbar)
+        save_btn.setObjectName(SAVE_BTN_OBJECT_NAME)
+        save_btn.setEnabled(False)
+        save_btn.clicked.connect(self._on_save_clicked)
+        toolbar.addWidget(save_btn)
+
+        progress_bar = QProgressBar(toolbar)
+        progress_bar.setObjectName(PROGRESS_BAR_OBJECT_NAME)
+        progress_bar.setRange(0, 100)
+        progress_bar.setValue(0)
+        progress_bar.setMaximumWidth(120)
+        toolbar.addWidget(progress_bar)
+
+        data_source_label = QLabel("Data: default (not found)", toolbar)
+        data_source_label.setObjectName(DATA_SOURCE_LABEL_OBJECT_NAME)
+        data_source_label.setMaximumWidth(220)
+        data_source_label.setToolTip(data_source_label.text())
+        toolbar.addWidget(data_source_label)
+
+        status_label = QLabel("Ready", toolbar)
+        status_label.setObjectName(STATUS_LABEL_OBJECT_NAME)
+        status_label.setMaximumWidth(220)
+        status_label.setToolTip(status_label.text())
+        toolbar.addWidget(status_label)
+
+        theme_label = QLabel("Theme:", toolbar)
+        theme_label.setObjectName(THEME_LABEL_OBJECT_NAME)
+        toolbar.addWidget(theme_label)
+
+        theme_combo = QComboBox(toolbar)
+        theme_combo.setObjectName(THEME_COMBO_OBJECT_NAME)
+        theme_combo.setEditable(False)
+        theme_combo.addItems(["System", "White", "Dark"])
+        theme_combo.setCurrentText("System")
+        theme_combo.currentTextChanged.connect(self._on_theme_changed)
+        toolbar.addWidget(theme_combo)
+
+        return toolbar
+
+    def _build_background_toolbar(self, parent: Any):
+        """Construct a dedicated background-parameter toolbar row."""
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QComboBox, QLabel, QLineEdit, QToolBar
+
+        toolbar = QToolBar("Background Toolbar", parent)
+        toolbar.setObjectName(BACKGROUND_TOOLBAR_OBJECT_NAME)
+        toolbar.setMovable(False)
+        toolbar.setFloatable(False)
+        toolbar.setAllowedAreas(Qt.ToolBarArea.TopToolBarArea)
+
         background_label = QLabel("Background:", toolbar)
         background_label.setObjectName(BACKGROUND_LABEL_OBJECT_NAME)
         self._background_label_action = toolbar.addWidget(background_label)
+        self._background_label_help_action = toolbar.addWidget(self._make_help_label(
+            toolbar,
+            "Background is an optional nuisance basis included with LS, NNLS, and iterative solvers. "
+            "It absorbs broad spectral structure not explained by selected chromophores.",
+            f"{BACKGROUND_LABEL_OBJECT_NAME}_help",
+        ))
 
-        # 8) bg_model_combo
         bg_model_combo = QComboBox(toolbar)
         bg_model_combo.setObjectName(BG_MODEL_COMBO_OBJECT_NAME)
+        bg_model_combo.setToolTip(
+            "Choose constant for a wavelength-independent background column, "
+            "or exponential for a wavelength-dependent decreasing background basis."
+        )
         bg_model_combo.setEditable(False)
         bg_model_combo.addItems(["constant", "exponential"])
         bg_model_combo.setCurrentText(str(self._background_params["model"]))
         bg_model_combo.currentTextChanged.connect(self._on_background_model_changed)
         self._background_model_action = toolbar.addWidget(bg_model_combo)
+        self._background_model_help_action = toolbar.addWidget(self._make_help_label(
+            toolbar,
+            "Background model. Constant uses one value at every LED band. "
+            "Exponential uses a wavelength-dependent nuisance basis controlled by start, end, shape, and offset.",
+            f"{BG_MODEL_COMBO_OBJECT_NAME}_help",
+        ))
 
-        # 9) bg_entry
         bg_entry = QLineEdit(toolbar)
         bg_entry.setObjectName(BG_ENTRY_OBJECT_NAME)
         bg_entry.setText(str(self._background_params["value"]))
@@ -338,11 +476,21 @@ class SpectralUnmixingMainWindow:
         bg_entry.setAlignment(Qt.AlignmentFlag.AlignRight)
         bg_entry.editingFinished.connect(self._on_bg_editing_finished)
         self._background_entry_action = toolbar.addWidget(bg_entry)
+        self._background_entry_help_action = toolbar.addWidget(self._make_help_label(
+            toolbar,
+            "Constant background column value used by LS, NNLS, and iterative solvers when the background model is constant.",
+            f"{BG_ENTRY_OBJECT_NAME}_help",
+        ))
 
-        # 10) exponential background controls
         bg_exp_start_label = QLabel("exp start:", toolbar)
         bg_exp_start_label.setObjectName(BG_EXP_START_LABEL_OBJECT_NAME)
         self._background_exp_start_label_action = toolbar.addWidget(bg_exp_start_label)
+        self._background_exp_start_help_action = toolbar.addWidget(self._make_help_label(
+            toolbar,
+            "Exponential component value at the shortest LED wavelength before adding offset. "
+            "Default 1.0 keeps the component normalized at the short-wavelength end.",
+            f"{BG_EXP_START_LABEL_OBJECT_NAME}_help",
+        ))
 
         bg_exp_start_entry = QLineEdit(toolbar)
         bg_exp_start_entry.setObjectName(BG_EXP_START_ENTRY_OBJECT_NAME)
@@ -355,6 +503,12 @@ class SpectralUnmixingMainWindow:
         bg_exp_end_label = QLabel("exp end:", toolbar)
         bg_exp_end_label.setObjectName(BG_EXP_END_LABEL_OBJECT_NAME)
         self._background_exp_end_label_action = toolbar.addWidget(bg_exp_end_label)
+        self._background_exp_end_help_action = toolbar.addWidget(self._make_help_label(
+            toolbar,
+            "Exponential component value at the longest LED wavelength before adding offset. "
+            "Default 0.1 creates a decreasing profile from 1.0 to 0.1; 0.0 is allowed for a zero long-wavelength endpoint.",
+            f"{BG_EXP_END_LABEL_OBJECT_NAME}_help",
+        ))
 
         bg_exp_end_entry = QLineEdit(toolbar)
         bg_exp_end_entry.setObjectName(BG_EXP_END_ENTRY_OBJECT_NAME)
@@ -364,38 +518,43 @@ class SpectralUnmixingMainWindow:
         bg_exp_end_entry.editingFinished.connect(partial(self._on_background_exp_editing_finished, "exp_end"))
         self._background_exp_end_entry_action = toolbar.addWidget(bg_exp_end_entry)
 
+        bg_exp_shape_label = QLabel("shape:", toolbar)
+        bg_exp_shape_label.setObjectName(BG_EXP_SHAPE_LABEL_OBJECT_NAME)
+        self._background_exp_shape_label_action = toolbar.addWidget(bg_exp_shape_label)
+        self._background_exp_shape_help_action = toolbar.addWidget(self._make_help_label(
+            toolbar,
+            "Curvature of the exponential decay. "
+            "1.0 is the standard exponential; values above 1 delay the drop, values below 1 make it drop earlier.",
+            f"{BG_EXP_SHAPE_LABEL_OBJECT_NAME}_help",
+        ))
+
+        bg_exp_shape_entry = QLineEdit(toolbar)
+        bg_exp_shape_entry.setObjectName(BG_EXP_SHAPE_ENTRY_OBJECT_NAME)
+        bg_exp_shape_entry.setText(str(self._background_params["exp_shape"]))
+        bg_exp_shape_entry.setMaximumWidth(72)
+        bg_exp_shape_entry.setAlignment(Qt.AlignmentFlag.AlignRight)
+        bg_exp_shape_entry.editingFinished.connect(partial(self._on_background_exp_editing_finished, "exp_shape"))
+        self._background_exp_shape_entry_action = toolbar.addWidget(bg_exp_shape_entry)
+
+        bg_exp_offset_label = QLabel("offset:", toolbar)
+        bg_exp_offset_label.setObjectName(BG_EXP_OFFSET_LABEL_OBJECT_NAME)
+        self._background_exp_offset_label_action = toolbar.addWidget(bg_exp_offset_label)
+        self._background_exp_offset_help_action = toolbar.addWidget(self._make_help_label(
+            toolbar,
+            "Additive baseline/floor for the exponential background. "
+            "It is added after the exponential component; default 0.0 preserves the original profile.",
+            f"{BG_EXP_OFFSET_LABEL_OBJECT_NAME}_help",
+        ))
+
+        bg_exp_offset_entry = QLineEdit(toolbar)
+        bg_exp_offset_entry.setObjectName(BG_EXP_OFFSET_ENTRY_OBJECT_NAME)
+        bg_exp_offset_entry.setText(str(self._background_params["exp_offset"]))
+        bg_exp_offset_entry.setMaximumWidth(72)
+        bg_exp_offset_entry.setAlignment(Qt.AlignmentFlag.AlignRight)
+        bg_exp_offset_entry.editingFinished.connect(partial(self._on_background_exp_editing_finished, "exp_offset"))
+        self._background_exp_offset_entry_action = toolbar.addWidget(bg_exp_offset_entry)
+
         self._set_background_model_controls(str(self._background_params["model"]))
-
-        # 11) run_btn
-        run_btn = QPushButton("Run", toolbar)
-        run_btn.setObjectName(RUN_BTN_OBJECT_NAME)
-        run_btn.setEnabled(False)
-        run_btn.clicked.connect(self._on_run_clicked)
-        toolbar.addWidget(run_btn)
-
-        # 12) save_btn
-        save_btn = QPushButton("Save", toolbar)
-        save_btn.setObjectName(SAVE_BTN_OBJECT_NAME)
-        save_btn.setEnabled(False)
-        save_btn.clicked.connect(self._on_save_clicked)
-        toolbar.addWidget(save_btn)
-
-        # 13) progress_bar
-        progress_bar = QProgressBar(toolbar)
-        progress_bar.setObjectName(PROGRESS_BAR_OBJECT_NAME)
-        progress_bar.setRange(0, 100)
-        progress_bar.setValue(0)
-        toolbar.addWidget(progress_bar)
-
-        # 14) data_source_label
-        data_source_label = QLabel("Data: default (not found)", toolbar)
-        data_source_label.setObjectName(DATA_SOURCE_LABEL_OBJECT_NAME)
-        toolbar.addWidget(data_source_label)
-
-        # 15) status_label
-        status_label = QLabel("Ready", toolbar)
-        status_label.setObjectName(STATUS_LABEL_OBJECT_NAME)
-        toolbar.addWidget(status_label)
 
         return toolbar
 
@@ -442,6 +601,41 @@ class SpectralUnmixingMainWindow:
                 "Power-law exponent for wavelength-dependent scattering. "
                 "Larger values make scattering decrease faster at longer wavelengths.",
             ),
+        ]
+
+        for label_text, label_name, entry_name, key, tooltip in fields:
+            label = QLabel(label_text, toolbar)
+            label.setObjectName(label_name)
+            toolbar.addWidget(label)
+            toolbar.addWidget(self._make_help_label(toolbar, tooltip, f"{label_name}_help"))
+
+            entry = QLineEdit(toolbar)
+            entry.setObjectName(entry_name)
+            entry.setText(str(self._scattering_params[key]))
+            entry.setMaximumWidth(88)
+            entry.setAlignment(Qt.AlignmentFlag.AlignRight)
+            entry.editingFinished.connect(partial(self._on_scattering_editing_finished, key))
+            toolbar.addWidget(entry)
+
+        return toolbar
+
+    def _build_scattering_advanced_toolbar(self, parent: Any):
+        """Construct the second fixed-scattering toolbar row."""
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QLabel, QLineEdit, QToolBar
+
+        toolbar = QToolBar("Scattering Advanced Toolbar", parent)
+        toolbar.setObjectName(SCATTERING_ADVANCED_TOOLBAR_OBJECT_NAME)
+        toolbar.setMovable(False)
+        toolbar.setFloatable(False)
+        toolbar.setAllowedAreas(Qt.ToolBarArea.TopToolBarArea)
+        toolbar.setVisible(False)
+
+        title = QLabel("Scattering tuning:", toolbar)
+        title.setStyleSheet("font-weight: 600;")
+        toolbar.addWidget(title)
+
+        fields = [
             (
                 "lipo frac:",
                 SCATTERING_LIPOFUNDIN_LABEL_OBJECT_NAME,
@@ -479,7 +673,7 @@ class SpectralUnmixingMainWindow:
     def _build_iterative_toolbar(self, parent: Any):
         """Construct an iterative-solver toolbar shown only for the iterative method."""
         from PySide6.QtCore import Qt
-        from PySide6.QtWidgets import QLabel, QLineEdit, QPushButton, QToolBar
+        from PySide6.QtWidgets import QLabel, QLineEdit, QToolBar
 
         toolbar = QToolBar("Iterative Solver Toolbar", parent)
         toolbar.setObjectName(ITERATIVE_TOOLBAR_OBJECT_NAME)
@@ -518,6 +712,41 @@ class SpectralUnmixingMainWindow:
                 "Minimum mean-RMSE improvement required to continue after the first iteration. "
                 "Larger values stop earlier; smaller values demand more refinement.",
             ),
+        ]
+
+        for label_text, label_name, entry_name, key, tooltip in fields:
+            label = QLabel(label_text, toolbar)
+            label.setObjectName(label_name)
+            toolbar.addWidget(label)
+            toolbar.addWidget(self._make_help_label(toolbar, tooltip, f"{label_name}_help"))
+
+            entry = QLineEdit(toolbar)
+            entry.setObjectName(entry_name)
+            entry.setText(str(self._iterative_params[key]))
+            entry.setMaximumWidth(92)
+            entry.setAlignment(Qt.AlignmentFlag.AlignRight)
+            entry.editingFinished.connect(partial(self._on_iterative_editing_finished, key))
+            toolbar.addWidget(entry)
+
+        return toolbar
+
+    def _build_iterative_advanced_toolbar(self, parent: Any):
+        """Construct the second iterative-solver toolbar row."""
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QLabel, QLineEdit, QPushButton, QToolBar
+
+        toolbar = QToolBar("Iterative Solver Advanced Toolbar", parent)
+        toolbar.setObjectName(ITERATIVE_ADVANCED_TOOLBAR_OBJECT_NAME)
+        toolbar.setMovable(False)
+        toolbar.setFloatable(False)
+        toolbar.setAllowedAreas(Qt.ToolBarArea.TopToolBarArea)
+        toolbar.setVisible(False)
+
+        title = QLabel("Iterative tuning:", toolbar)
+        title.setStyleSheet("font-weight: 600;")
+        toolbar.addWidget(title)
+
+        fields = [
             (
                 "Damping:",
                 ITERATIVE_DAMPING_LABEL_OBJECT_NAME,
@@ -562,8 +791,7 @@ class SpectralUnmixingMainWindow:
         """No-op placeholder callback for QT-003 controls."""
         return None
 
-    @staticmethod
-    def _make_help_label(parent: Any, tooltip: str, object_name: str):
+    def _make_help_label(self, parent: Any, tooltip: str, object_name: str):
         """Create a compact '?' label with a hover tooltip."""
         from PySide6.QtCore import Qt
         from PySide6.QtWidgets import QLabel
@@ -573,6 +801,25 @@ class SpectralUnmixingMainWindow:
         label.setToolTip(tooltip)
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         label.setFixedSize(16, 16)
+        self._style_help_label(label)
+        self._help_labels.append(label)
+        return label
+
+    def _style_help_label(self, label: Any) -> None:
+        """Apply the active theme style to one compact '?' help label."""
+        if self._theme_name == "dark":
+            label.setStyleSheet(
+                "QLabel {"
+                " border: 1px solid #8793a2;"
+                " border-radius: 8px;"
+                " color: #f4f7fb;"
+                " font-size: 10px;"
+                " font-weight: 600;"
+                " background: #303846;"
+                "}"
+            )
+            return
+
         label.setStyleSheet(
             "QLabel {"
             " border: 1px solid #8a8a8a;"
@@ -583,7 +830,245 @@ class SpectralUnmixingMainWindow:
             " background: #f7f7f7;"
             "}"
         )
-        return label
+
+    def _on_theme_changed(self, theme_text: str) -> None:
+        """Switch between the light and dark application themes."""
+        self._apply_theme(theme_text)
+
+    def _apply_theme(self, theme_name: str) -> None:
+        """Apply the selected application theme and refresh themed help badges."""
+        self._theme_mode = self._normalize_theme_mode(theme_name)
+        self._theme_name = self._resolve_theme_name(self._theme_mode)
+        if self._theme_name == "dark":
+            stylesheet = self._dark_theme_stylesheet()
+        elif self._theme_mode == "white":
+            stylesheet = self._white_theme_stylesheet()
+        else:
+            stylesheet = ""
+        self._impl.setStyleSheet(stylesheet)
+        for label in self._help_labels:
+            self._style_help_label(label)
+
+    @staticmethod
+    def _normalize_theme_mode(theme_name: str) -> str:
+        """Return the supported theme selector value."""
+        normalized = theme_name.strip().lower()
+        if normalized == "dark":
+            return "dark"
+        if normalized in {"white", "light"}:
+            return "white"
+        return "system"
+
+    def _resolve_theme_name(self, theme_name: str) -> str:
+        """Resolve explicit or system theme mode to the effective label palette."""
+        mode = self._normalize_theme_mode(theme_name)
+        if mode == "dark":
+            return "dark"
+        if mode == "white":
+            return "light"
+        return self._system_theme_name()
+
+    @staticmethod
+    def _system_theme_name() -> str:
+        """Infer whether the active Qt/application palette is light or dark."""
+        try:
+            from PySide6.QtGui import QPalette
+            from PySide6.QtWidgets import QApplication
+        except ImportError:  # pragma: no cover
+            return "light"
+
+        app = QApplication.instance()
+        if app is None:
+            return "light"
+
+        palette = app.palette()
+        window = palette.color(QPalette.ColorRole.Window)
+        text = palette.color(QPalette.ColorRole.WindowText)
+        if window.lightness() < 128 and text.lightness() > window.lightness():
+            return "dark"
+        return "light"
+
+    @staticmethod
+    def _white_theme_stylesheet() -> str:
+        """Return an explicit white theme stylesheet for users overriding system dark mode."""
+        return """
+            QMainWindow, QWidget {
+                background: #ffffff;
+                color: #202124;
+            }
+            QToolBar {
+                background: #f5f7fa;
+                border-bottom: 1px solid #d5dbe3;
+                spacing: 4px;
+            }
+            QFrame {
+                background: #ffffff;
+                border: 1px solid #d5dbe3;
+            }
+            QLabel {
+                color: #202124;
+            }
+            QLineEdit, QComboBox, QTextEdit {
+                background: #ffffff;
+                color: #202124;
+                border: 1px solid #b8c1cc;
+                border-radius: 3px;
+                padding: 2px 5px;
+                selection-background-color: #9fc5f8;
+            }
+            QLineEdit:disabled, QComboBox:disabled, QTextEdit:disabled {
+                background: #eef1f5;
+                color: #6b7280;
+            }
+            QPushButton {
+                background: #f7f9fc;
+                color: #202124;
+                border: 1px solid #b8c1cc;
+                border-radius: 4px;
+                padding: 4px 8px;
+            }
+            QPushButton:hover {
+                background: #edf3fb;
+            }
+            QPushButton:disabled {
+                background: #eef1f5;
+                color: #8a94a3;
+                border-color: #d5dbe3;
+            }
+            QProgressBar {
+                background: #ffffff;
+                color: #202124;
+                border: 1px solid #b8c1cc;
+                border-radius: 3px;
+                text-align: center;
+            }
+            QProgressBar::chunk {
+                background: #3f7fcf;
+                border-radius: 2px;
+            }
+            QTabWidget::pane {
+                border: 1px solid #d5dbe3;
+                background: #ffffff;
+            }
+            QTabBar::tab {
+                background: #eef1f5;
+                color: #202124;
+                border: 1px solid #d5dbe3;
+                padding: 6px 10px;
+            }
+            QTabBar::tab:selected {
+                background: #ffffff;
+                color: #111827;
+            }
+            QGroupBox {
+                border: 1px solid #d5dbe3;
+                border-radius: 4px;
+                margin-top: 8px;
+                padding-top: 8px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 8px;
+                padding: 0 4px;
+            }
+            QAbstractItemView {
+                background: #ffffff;
+                color: #202124;
+                border: 1px solid #b8c1cc;
+                selection-background-color: #9fc5f8;
+            }
+        """
+
+    @staticmethod
+    def _dark_theme_stylesheet() -> str:
+        """Return the dark theme stylesheet for the main window and its descendants."""
+        return """
+            QMainWindow, QWidget {
+                background: #181c22;
+                color: #edf1f7;
+            }
+            QToolBar {
+                background: #1f252d;
+                border-bottom: 1px solid #38414d;
+                spacing: 4px;
+            }
+            QFrame {
+                background: #1d232b;
+                border: 1px solid #38414d;
+            }
+            QLabel {
+                color: #edf1f7;
+            }
+            QLineEdit, QComboBox, QTextEdit {
+                background: #11151b;
+                color: #f4f7fb;
+                border: 1px solid #536171;
+                border-radius: 3px;
+                padding: 2px 5px;
+                selection-background-color: #3f6fb6;
+            }
+            QLineEdit:disabled, QComboBox:disabled, QTextEdit:disabled {
+                background: #20262e;
+                color: #8f9baa;
+            }
+            QPushButton {
+                background: #2b3440;
+                color: #f4f7fb;
+                border: 1px solid #5a6776;
+                border-radius: 4px;
+                padding: 4px 8px;
+            }
+            QPushButton:hover {
+                background: #354152;
+            }
+            QPushButton:disabled {
+                background: #20262e;
+                color: #8f9baa;
+                border-color: #38414d;
+            }
+            QProgressBar {
+                background: #11151b;
+                color: #f4f7fb;
+                border: 1px solid #536171;
+                border-radius: 3px;
+                text-align: center;
+            }
+            QProgressBar::chunk {
+                background: #4f8bd8;
+                border-radius: 2px;
+            }
+            QTabWidget::pane {
+                border: 1px solid #38414d;
+                background: #181c22;
+            }
+            QTabBar::tab {
+                background: #252d37;
+                color: #d9e1ec;
+                border: 1px solid #38414d;
+                padding: 6px 10px;
+            }
+            QTabBar::tab:selected {
+                background: #313b48;
+                color: #ffffff;
+            }
+            QGroupBox {
+                border: 1px solid #38414d;
+                border-radius: 4px;
+                margin-top: 8px;
+                padding-top: 8px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 8px;
+                padding: 0 4px;
+            }
+            QAbstractItemView {
+                background: #11151b;
+                color: #f4f7fb;
+                border: 1px solid #536171;
+                selection-background-color: #3f6fb6;
+            }
+        """
 
     # -- QT-013: toolbar callbacks and state transitions --------------------
 
@@ -984,6 +1469,8 @@ class SpectralUnmixingMainWindow:
                     background_model=background_parameters["model"],
                     background_exp_start=background_parameters["exp_start"],
                     background_exp_end=background_parameters["exp_end"],
+                    background_exp_shape=background_parameters["exp_shape"],
+                    background_exp_offset=background_parameters["exp_offset"],
                 )
             else:
                 background_parameters = snapshot["background_parameters"]
@@ -1000,6 +1487,8 @@ class SpectralUnmixingMainWindow:
                     background_model=background_parameters["model"],
                     background_exp_start=background_parameters["exp_start"],
                     background_exp_end=background_parameters["exp_end"],
+                    background_exp_shape=background_parameters["exp_shape"],
+                    background_exp_offset=background_parameters["exp_offset"],
                 )
 
             results: Dict[str, Dict[str, Any]] = {}
@@ -1024,6 +1513,8 @@ class SpectralUnmixingMainWindow:
                             background_model=background_parameters["model"],
                             background_exp_start=background_parameters["exp_start"],
                             background_exp_end=background_parameters["exp_end"],
+                            background_exp_shape=background_parameters["exp_shape"],
+                            background_exp_offset=background_parameters["exp_offset"],
                             scattering_parameters=snapshot["scattering_parameters"],
                             **(snapshot.get("iterative_parameters") or {}),
                         )
@@ -1110,6 +1601,7 @@ class SpectralUnmixingMainWindow:
         label = self._impl.findChild(QLabel, STATUS_LABEL_OBJECT_NAME)
         if label is not None:
             label.setText(text)
+            label.setToolTip(text)
 
     @staticmethod
     def _default_scattering_parameters() -> Dict[str, float]:
@@ -1168,6 +1660,8 @@ class SpectralUnmixingMainWindow:
         value_entry = self._impl.findChild(QLineEdit, BG_ENTRY_OBJECT_NAME)
         exp_start_entry = self._impl.findChild(QLineEdit, BG_EXP_START_ENTRY_OBJECT_NAME)
         exp_end_entry = self._impl.findChild(QLineEdit, BG_EXP_END_ENTRY_OBJECT_NAME)
+        exp_shape_entry = self._impl.findChild(QLineEdit, BG_EXP_SHAPE_ENTRY_OBJECT_NAME)
+        exp_offset_entry = self._impl.findChild(QLineEdit, BG_EXP_OFFSET_ENTRY_OBJECT_NAME)
 
         model = model_combo.currentText() if model_combo is not None else self._background_params["model"]
         raw_params = {
@@ -1175,6 +1669,8 @@ class SpectralUnmixingMainWindow:
             "value": value_entry.text().strip() if value_entry is not None else self._background_params["value"],
             "exp_start": self._background_params["exp_start"],
             "exp_end": self._background_params["exp_end"],
+            "exp_shape": self._background_params["exp_shape"],
+            "exp_offset": self._background_params["exp_offset"],
         }
         if model == "exponential":
             raw_params["exp_start"] = (
@@ -1186,6 +1682,16 @@ class SpectralUnmixingMainWindow:
                 exp_end_entry.text().strip()
                 if exp_end_entry is not None
                 else self._background_params["exp_end"]
+            )
+            raw_params["exp_shape"] = (
+                exp_shape_entry.text().strip()
+                if exp_shape_entry is not None
+                else self._background_params["exp_shape"]
+            )
+            raw_params["exp_offset"] = (
+                exp_offset_entry.text().strip()
+                if exp_offset_entry is not None
+                else self._background_params["exp_offset"]
             )
 
         validated = processing.validate_background_parameters(raw_params)
@@ -1205,17 +1711,31 @@ class SpectralUnmixingMainWindow:
 
         if self._background_label_action is not None:
             self._background_label_action.setVisible(background_enabled)
+        if self._background_label_help_action is not None:
+            self._background_label_help_action.setVisible(background_enabled)
         if self._background_model_action is not None:
             self._background_model_action.setVisible(background_enabled)
+        if self._background_model_help_action is not None:
+            self._background_model_help_action.setVisible(background_enabled)
         if self._background_entry_action is not None:
             self._background_entry_action.setVisible(background_enabled and not use_exponential)
+        if self._background_entry_help_action is not None:
+            self._background_entry_help_action.setVisible(background_enabled and not use_exponential)
 
         exp_visible = background_enabled and use_exponential
         for action in (
             self._background_exp_start_label_action,
+            self._background_exp_start_help_action,
             self._background_exp_start_entry_action,
             self._background_exp_end_label_action,
+            self._background_exp_end_help_action,
             self._background_exp_end_entry_action,
+            self._background_exp_shape_label_action,
+            self._background_exp_shape_help_action,
+            self._background_exp_shape_entry_action,
+            self._background_exp_offset_label_action,
+            self._background_exp_offset_help_action,
+            self._background_exp_offset_entry_action,
         ):
             if action is not None:
                 action.setVisible(exp_visible)
@@ -1256,14 +1776,23 @@ class SpectralUnmixingMainWindow:
         use_iterative_controls = solver_method == "iterative"
         use_background_controls = solver_method != "mu_a"
 
+        background_toolbar = self._impl.findChild(QToolBar, BACKGROUND_TOOLBAR_OBJECT_NAME)
         scattering_toolbar = self._impl.findChild(QToolBar, SCATTERING_TOOLBAR_OBJECT_NAME)
+        scattering_advanced_toolbar = self._impl.findChild(QToolBar, SCATTERING_ADVANCED_TOOLBAR_OBJECT_NAME)
         iterative_toolbar = self._impl.findChild(QToolBar, ITERATIVE_TOOLBAR_OBJECT_NAME)
+        iterative_advanced_toolbar = self._impl.findChild(QToolBar, ITERATIVE_ADVANCED_TOOLBAR_OBJECT_NAME)
 
         self._set_background_model_controls(background_enabled=use_background_controls)
+        if background_toolbar is not None:
+            background_toolbar.setVisible(use_background_controls)
         if scattering_toolbar is not None:
             scattering_toolbar.setVisible(use_fixed_scattering)
+        if scattering_advanced_toolbar is not None:
+            scattering_advanced_toolbar.setVisible(use_fixed_scattering)
         if iterative_toolbar is not None:
             iterative_toolbar.setVisible(use_iterative_controls)
+        if iterative_advanced_toolbar is not None:
+            iterative_advanced_toolbar.setVisible(use_iterative_controls)
 
     def _on_solver_method_changed(self, solver_method: str) -> None:
         """Update solver-specific controls when the dropdown selection changes."""
@@ -1342,10 +1871,14 @@ class SpectralUnmixingMainWindow:
         entry_map = {
             "exp_start": BG_EXP_START_ENTRY_OBJECT_NAME,
             "exp_end": BG_EXP_END_ENTRY_OBJECT_NAME,
+            "exp_shape": BG_EXP_SHAPE_ENTRY_OBJECT_NAME,
+            "exp_offset": BG_EXP_OFFSET_ENTRY_OBJECT_NAME,
         }
         label_map = {
             "exp_start": "exp_start",
             "exp_end": "exp_end",
+            "exp_shape": "exp_shape",
+            "exp_offset": "exp_offset",
         }
 
         entry = self._impl.findChild(QLineEdit, entry_map[key])
@@ -1573,6 +2106,7 @@ class SpectralUnmixingMainWindow:
         label = self._impl.findChild(QLabel, DATA_SOURCE_LABEL_OBJECT_NAME)
         if label is not None:
             label.setText(text)
+            label.setToolTip(text)
 
     def _set_data_source_label_from_state(self) -> None:
         if self.data_dir:

@@ -332,43 +332,68 @@ class TestQt003Toolbar(unittest.TestCase):
         self.impl = self.window._impl
 
     def test_toolbar_control_order_and_object_names(self):
-        """Toolbar widgets must appear in exact left-to-right order."""
+        """Toolbar widgets must appear in exact left-to-right order per row."""
         from PySide6.QtWidgets import QToolBar
 
-        expected_order = [
+        expected_main_order = [
             "select_root_btn",
             "select_data_btn",
             "use_default_btn",
             "chromophore_menu",
             "solver_label",
             "solver_combo",
-            "background_label",
-            "bg_model_combo",
-            "bg_entry",
-            "bg_exp_start_label",
-            "bg_exp_start_entry",
-            "bg_exp_end_label",
-            "bg_exp_end_entry",
+        ]
+        expected_run_order = [
             "run_btn",
             "save_btn",
             "progress_bar",
             "data_source_label",
             "status_label",
+            "theme_label",
+            "theme_combo",
+        ]
+        expected_background_order = [
+            "background_label",
+            "background_label_help",
+            "bg_model_combo",
+            "bg_model_combo_help",
+            "bg_entry",
+            "bg_entry_help",
+            "bg_exp_start_label",
+            "bg_exp_start_label_help",
+            "bg_exp_start_entry",
+            "bg_exp_end_label",
+            "bg_exp_end_label_help",
+            "bg_exp_end_entry",
+            "bg_exp_shape_label",
+            "bg_exp_shape_label_help",
+            "bg_exp_shape_entry",
+            "bg_exp_offset_label",
+            "bg_exp_offset_label_help",
+            "bg_exp_offset_entry",
         ]
 
         toolbar = self.impl.findChild(QToolBar, "main_toolbar")
+        run_toolbar = self.impl.findChild(QToolBar, "run_toolbar")
+        background_toolbar = self.impl.findChild(QToolBar, "background_toolbar")
         self.assertIsNotNone(toolbar)
+        self.assertIsNotNone(run_toolbar)
+        self.assertIsNotNone(background_toolbar)
 
-        actual_order = []
-        for action in toolbar.actions():
-            widget = toolbar.widgetForAction(action)
-            if widget is None:
-                continue
-            name = widget.objectName()
-            if name:
-                actual_order.append(name)
+        def object_names_for(toolbar):
+            names = []
+            for action in toolbar.actions():
+                widget = toolbar.widgetForAction(action)
+                if widget is None:
+                    continue
+                name = widget.objectName()
+                if name:
+                    names.append(name)
+            return names
 
-        self.assertEqual(actual_order, expected_order)
+        self.assertEqual(object_names_for(toolbar), expected_main_order)
+        self.assertEqual(object_names_for(run_toolbar), expected_run_order)
+        self.assertEqual(object_names_for(background_toolbar), expected_background_order)
 
     def test_run_and_save_start_disabled(self):
         """Run/Save buttons must be disabled at startup."""
@@ -412,23 +437,60 @@ class TestQt003Toolbar(unittest.TestCase):
         self.assertIsNotNone(solver_combo)
         self.assertEqual(solver_combo.currentText(), "ls")
 
+    def test_theme_combo_switches_help_label_styles(self):
+        """Theme combo should switch the main stylesheet and '?' badge colors."""
+        from PySide6.QtWidgets import QComboBox, QLabel
+        from app.gui_qt.main_window import (
+            BACKGROUND_LABEL_OBJECT_NAME,
+            THEME_COMBO_OBJECT_NAME,
+        )
+
+        theme_combo = self.impl.findChild(QComboBox, THEME_COMBO_OBJECT_NAME)
+        help_label = self.impl.findChild(QLabel, f"{BACKGROUND_LABEL_OBJECT_NAME}_help")
+
+        self.assertIsNotNone(theme_combo)
+        self.assertIsNotNone(help_label)
+        self.assertEqual(theme_combo.currentText(), "System")
+
+        theme_combo.setCurrentText("Dark")
+
+        self.assertIn("background: #303846", help_label.styleSheet())
+        self.assertIn("background: #181c22", self.impl.styleSheet())
+
+        theme_combo.setCurrentText("White")
+
+        self.assertIn("background: #f7f7f7", help_label.styleSheet())
+        self.assertIn("background: #ffffff", self.impl.styleSheet())
+
+        theme_combo.setCurrentText("System")
+
+        self.assertEqual(theme_combo.currentText(), "System")
+
     def test_scattering_toolbar_hidden_by_default(self):
         """Fixed-scattering controls must start hidden until a fixed-scattering solver is selected."""
         from PySide6.QtTest import QTest
         from PySide6.QtWidgets import QToolBar
         from app.gui_qt.main_window import (
+            ITERATIVE_ADVANCED_TOOLBAR_OBJECT_NAME,
             ITERATIVE_TOOLBAR_OBJECT_NAME,
+            SCATTERING_ADVANCED_TOOLBAR_OBJECT_NAME,
             SCATTERING_TOOLBAR_OBJECT_NAME,
         )
 
         self.impl.show()
         QTest.qWait(10)
         scattering_toolbar = self.impl.findChild(QToolBar, SCATTERING_TOOLBAR_OBJECT_NAME)
+        scattering_advanced_toolbar = self.impl.findChild(QToolBar, SCATTERING_ADVANCED_TOOLBAR_OBJECT_NAME)
         iterative_toolbar = self.impl.findChild(QToolBar, ITERATIVE_TOOLBAR_OBJECT_NAME)
+        iterative_advanced_toolbar = self.impl.findChild(QToolBar, ITERATIVE_ADVANCED_TOOLBAR_OBJECT_NAME)
         self.assertIsNotNone(scattering_toolbar)
+        self.assertIsNotNone(scattering_advanced_toolbar)
         self.assertIsNotNone(iterative_toolbar)
+        self.assertIsNotNone(iterative_advanced_toolbar)
         self.assertFalse(scattering_toolbar.isVisible())
+        self.assertFalse(scattering_advanced_toolbar.isVisible())
         self.assertFalse(iterative_toolbar.isVisible())
+        self.assertFalse(iterative_advanced_toolbar.isVisible())
 
     def test_mu_a_selection_shows_scattering_and_hides_background(self):
         """Choosing mu_a should show fixed-scattering controls and hide background."""
@@ -438,7 +500,9 @@ class TestQt003Toolbar(unittest.TestCase):
             BACKGROUND_LABEL_OBJECT_NAME,
             BG_ENTRY_OBJECT_NAME,
             BG_MODEL_COMBO_OBJECT_NAME,
+            ITERATIVE_ADVANCED_TOOLBAR_OBJECT_NAME,
             ITERATIVE_TOOLBAR_OBJECT_NAME,
+            SCATTERING_ADVANCED_TOOLBAR_OBJECT_NAME,
             SCATTERING_TOOLBAR_OBJECT_NAME,
             SOLVER_COMBO_OBJECT_NAME,
         )
@@ -450,7 +514,9 @@ class TestQt003Toolbar(unittest.TestCase):
         bg_model_combo = self.impl.findChild(QComboBox, BG_MODEL_COMBO_OBJECT_NAME)
         bg_entry = self.impl.findChild(QLineEdit, BG_ENTRY_OBJECT_NAME)
         scattering_toolbar = self.impl.findChild(QToolBar, SCATTERING_TOOLBAR_OBJECT_NAME)
+        scattering_advanced_toolbar = self.impl.findChild(QToolBar, SCATTERING_ADVANCED_TOOLBAR_OBJECT_NAME)
         iterative_toolbar = self.impl.findChild(QToolBar, ITERATIVE_TOOLBAR_OBJECT_NAME)
+        iterative_advanced_toolbar = self.impl.findChild(QToolBar, ITERATIVE_ADVANCED_TOOLBAR_OBJECT_NAME)
 
         solver_combo.setCurrentText("mu_a")
         QTest.qWait(10)
@@ -459,7 +525,9 @@ class TestQt003Toolbar(unittest.TestCase):
         self.assertFalse(bg_model_combo.isVisible())
         self.assertFalse(bg_entry.isVisible())
         self.assertTrue(scattering_toolbar.isVisible())
+        self.assertTrue(scattering_advanced_toolbar.isVisible())
         self.assertFalse(iterative_toolbar.isVisible())
+        self.assertFalse(iterative_advanced_toolbar.isVisible())
 
     def test_iterative_selection_shows_background_scattering_and_iterative_controls(self):
         """Choosing iterative should show background, fixed-scattering, and iterative controls."""
@@ -469,7 +537,9 @@ class TestQt003Toolbar(unittest.TestCase):
             BACKGROUND_LABEL_OBJECT_NAME,
             BG_ENTRY_OBJECT_NAME,
             BG_MODEL_COMBO_OBJECT_NAME,
+            ITERATIVE_ADVANCED_TOOLBAR_OBJECT_NAME,
             ITERATIVE_TOOLBAR_OBJECT_NAME,
+            SCATTERING_ADVANCED_TOOLBAR_OBJECT_NAME,
             SCATTERING_TOOLBAR_OBJECT_NAME,
             SOLVER_COMBO_OBJECT_NAME,
         )
@@ -481,7 +551,9 @@ class TestQt003Toolbar(unittest.TestCase):
         bg_model_combo = self.impl.findChild(QComboBox, BG_MODEL_COMBO_OBJECT_NAME)
         bg_entry = self.impl.findChild(QLineEdit, BG_ENTRY_OBJECT_NAME)
         scattering_toolbar = self.impl.findChild(QToolBar, SCATTERING_TOOLBAR_OBJECT_NAME)
+        scattering_advanced_toolbar = self.impl.findChild(QToolBar, SCATTERING_ADVANCED_TOOLBAR_OBJECT_NAME)
         iterative_toolbar = self.impl.findChild(QToolBar, ITERATIVE_TOOLBAR_OBJECT_NAME)
+        iterative_advanced_toolbar = self.impl.findChild(QToolBar, ITERATIVE_ADVANCED_TOOLBAR_OBJECT_NAME)
 
         solver_combo.setCurrentText("iterative")
         QTest.qWait(10)
@@ -490,7 +562,9 @@ class TestQt003Toolbar(unittest.TestCase):
         self.assertTrue(bg_model_combo.isVisible())
         self.assertTrue(bg_entry.isVisible())
         self.assertTrue(scattering_toolbar.isVisible())
+        self.assertTrue(scattering_advanced_toolbar.isVisible())
         self.assertTrue(iterative_toolbar.isVisible())
+        self.assertTrue(iterative_advanced_toolbar.isVisible())
 
     def test_switching_back_from_mu_a_restores_background_controls(self):
         """Leaving mu_a should hide scattering controls and restore background."""
@@ -499,6 +573,7 @@ class TestQt003Toolbar(unittest.TestCase):
         from app.gui_qt.main_window import (
             BACKGROUND_LABEL_OBJECT_NAME,
             BG_ENTRY_OBJECT_NAME,
+            SCATTERING_ADVANCED_TOOLBAR_OBJECT_NAME,
             SCATTERING_TOOLBAR_OBJECT_NAME,
             SOLVER_COMBO_OBJECT_NAME,
         )
@@ -509,6 +584,7 @@ class TestQt003Toolbar(unittest.TestCase):
         background_label = self.impl.findChild(QLabel, BACKGROUND_LABEL_OBJECT_NAME)
         bg_entry = self.impl.findChild(QLineEdit, BG_ENTRY_OBJECT_NAME)
         scattering_toolbar = self.impl.findChild(QToolBar, SCATTERING_TOOLBAR_OBJECT_NAME)
+        scattering_advanced_toolbar = self.impl.findChild(QToolBar, SCATTERING_ADVANCED_TOOLBAR_OBJECT_NAME)
 
         solver_combo.setCurrentText("mu_a")
         QTest.qWait(10)
@@ -518,6 +594,7 @@ class TestQt003Toolbar(unittest.TestCase):
         self.assertTrue(background_label.isVisible())
         self.assertTrue(bg_entry.isVisible())
         self.assertFalse(scattering_toolbar.isVisible())
+        self.assertFalse(scattering_advanced_toolbar.isVisible())
 
     def test_mu_a_snapshot_captures_scattering_parameters(self):
         """Run snapshot should include validated fixed-scattering parameters."""
@@ -626,6 +703,8 @@ class TestQt003Toolbar(unittest.TestCase):
                 "value": 2500.0,
                 "exp_start": 1.0,
                 "exp_end": 0.1,
+                "exp_shape": 1.0,
+                "exp_offset": 0.0,
             },
         )
         self.assertEqual(

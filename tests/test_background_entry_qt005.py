@@ -52,6 +52,8 @@ class TestBackgroundEntryQT005(unittest.TestCase):
         from PySide6.QtWidgets import QComboBox, QLineEdit
         from app.gui_qt.main_window import (
             BG_EXP_END_ENTRY_OBJECT_NAME,
+            BG_EXP_OFFSET_ENTRY_OBJECT_NAME,
+            BG_EXP_SHAPE_ENTRY_OBJECT_NAME,
             BG_EXP_START_ENTRY_OBJECT_NAME,
             BG_MODEL_COMBO_OBJECT_NAME,
         )
@@ -59,13 +61,19 @@ class TestBackgroundEntryQT005(unittest.TestCase):
         model_combo = self.impl.findChild(QComboBox, BG_MODEL_COMBO_OBJECT_NAME)
         exp_start = self.impl.findChild(QLineEdit, BG_EXP_START_ENTRY_OBJECT_NAME)
         exp_end = self.impl.findChild(QLineEdit, BG_EXP_END_ENTRY_OBJECT_NAME)
+        exp_shape = self.impl.findChild(QLineEdit, BG_EXP_SHAPE_ENTRY_OBJECT_NAME)
+        exp_offset = self.impl.findChild(QLineEdit, BG_EXP_OFFSET_ENTRY_OBJECT_NAME)
 
         self.assertIsNotNone(model_combo)
         self.assertIsNotNone(exp_start)
         self.assertIsNotNone(exp_end)
+        self.assertIsNotNone(exp_shape)
+        self.assertIsNotNone(exp_offset)
         self.assertEqual(model_combo.currentText(), "constant")
         self.assertEqual(exp_start.text(), "1.0")
         self.assertEqual(exp_end.text(), "0.1")
+        self.assertEqual(exp_shape.text(), "1.0")
+        self.assertEqual(exp_offset.text(), "0.0")
 
     def test_default_getter_returns_2500_0(self):
         """get_background_value() should return 2500.0 at startup."""
@@ -202,6 +210,8 @@ class TestBackgroundEntryQT005(unittest.TestCase):
         from app.gui_qt.main_window import (
             BG_ENTRY_OBJECT_NAME,
             BG_EXP_END_ENTRY_OBJECT_NAME,
+            BG_EXP_OFFSET_ENTRY_OBJECT_NAME,
+            BG_EXP_SHAPE_ENTRY_OBJECT_NAME,
             BG_EXP_START_ENTRY_OBJECT_NAME,
             BG_MODEL_COMBO_OBJECT_NAME,
         )
@@ -213,6 +223,8 @@ class TestBackgroundEntryQT005(unittest.TestCase):
         bg_entry = self.impl.findChild(QLineEdit, BG_ENTRY_OBJECT_NAME)
         exp_start = self.impl.findChild(QLineEdit, BG_EXP_START_ENTRY_OBJECT_NAME)
         exp_end = self.impl.findChild(QLineEdit, BG_EXP_END_ENTRY_OBJECT_NAME)
+        exp_shape = self.impl.findChild(QLineEdit, BG_EXP_SHAPE_ENTRY_OBJECT_NAME)
+        exp_offset = self.impl.findChild(QLineEdit, BG_EXP_OFFSET_ENTRY_OBJECT_NAME)
 
         model_combo.setCurrentText("exponential")
         QTest.qWait(10)
@@ -220,12 +232,16 @@ class TestBackgroundEntryQT005(unittest.TestCase):
         self.assertFalse(bg_entry.isVisible())
         self.assertTrue(exp_start.isVisible())
         self.assertTrue(exp_end.isVisible())
+        self.assertTrue(exp_shape.isVisible())
+        self.assertTrue(exp_offset.isVisible())
 
     def test_exponential_snapshot_captures_background_parameters(self):
         """Run snapshot should capture exponential background model parameters."""
         from PySide6.QtWidgets import QComboBox, QLineEdit
         from app.gui_qt.main_window import (
             BG_EXP_END_ENTRY_OBJECT_NAME,
+            BG_EXP_OFFSET_ENTRY_OBJECT_NAME,
+            BG_EXP_SHAPE_ENTRY_OBJECT_NAME,
             BG_EXP_START_ENTRY_OBJECT_NAME,
             BG_MODEL_COMBO_OBJECT_NAME,
         )
@@ -238,10 +254,14 @@ class TestBackgroundEntryQT005(unittest.TestCase):
         model_combo = self.impl.findChild(QComboBox, BG_MODEL_COMBO_OBJECT_NAME)
         exp_start = self.impl.findChild(QLineEdit, BG_EXP_START_ENTRY_OBJECT_NAME)
         exp_end = self.impl.findChild(QLineEdit, BG_EXP_END_ENTRY_OBJECT_NAME)
+        exp_shape = self.impl.findChild(QLineEdit, BG_EXP_SHAPE_ENTRY_OBJECT_NAME)
+        exp_offset = self.impl.findChild(QLineEdit, BG_EXP_OFFSET_ENTRY_OBJECT_NAME)
 
         model_combo.setCurrentText("exponential")
         exp_start.setText("1.0")
         exp_end.setText("0.1")
+        exp_shape.setText("1.5")
+        exp_offset.setText("0.02")
 
         snapshot = self.window._build_config_snapshot()
 
@@ -252,8 +272,39 @@ class TestBackgroundEntryQT005(unittest.TestCase):
                 "value": 2500.0,
                 "exp_start": 1.0,
                 "exp_end": 0.1,
+                "exp_shape": 1.5,
+                "exp_offset": 0.02,
             },
         )
+
+    def test_background_parameter_help_tooltips_exist(self):
+        """Background controls should have '?' help markers with tooltips."""
+        from PySide6.QtWidgets import QLabel
+        from app.gui_qt.main_window import (
+            BACKGROUND_LABEL_OBJECT_NAME,
+            BG_ENTRY_OBJECT_NAME,
+            BG_EXP_END_LABEL_OBJECT_NAME,
+            BG_EXP_OFFSET_LABEL_OBJECT_NAME,
+            BG_EXP_SHAPE_LABEL_OBJECT_NAME,
+            BG_EXP_START_LABEL_OBJECT_NAME,
+            BG_MODEL_COMBO_OBJECT_NAME,
+        )
+
+        names = [
+            BACKGROUND_LABEL_OBJECT_NAME,
+            BG_MODEL_COMBO_OBJECT_NAME,
+            BG_ENTRY_OBJECT_NAME,
+            BG_EXP_START_LABEL_OBJECT_NAME,
+            BG_EXP_END_LABEL_OBJECT_NAME,
+            BG_EXP_SHAPE_LABEL_OBJECT_NAME,
+            BG_EXP_OFFSET_LABEL_OBJECT_NAME,
+        ]
+        for object_name in names:
+            with self.subTest(object_name=object_name):
+                help_label = self.impl.findChild(QLabel, f"{object_name}_help")
+                self.assertIsNotNone(help_label)
+                self.assertEqual(help_label.text(), "?")
+                self.assertTrue(help_label.toolTip())
 
 
 if __name__ == "__main__":
