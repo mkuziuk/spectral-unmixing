@@ -7,6 +7,7 @@ import sys
 import unittest
 import warnings
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 
@@ -437,6 +438,85 @@ class TestFixedScatteringSolver(unittest.TestCase):
         self.assertEqual(solver_info["A_used"].shape[1], 2)
         self.assertTrue(solver_info["include_background"])
         self.assertEqual(solver_info["background_parameters"]["model"], "exponential")
+
+    def test_iterative_solver_returns_best_rmse_iterate(self):
+        od_cube = np.zeros((1, 1, 1), dtype=float)
+        static_A = np.array([[1.0]], dtype=float)
+        common_wl = np.array([500.0], dtype=float)
+        led_emission = {500: np.array([1.0], dtype=float)}
+        chromophore_spectra = {
+            "bilirubin": (common_wl, np.array([1.0], dtype=float)),
+        }
+        concentrations_seq = [
+            np.array([[[0.3]]], dtype=float),
+            np.array([[[0.6]]], dtype=float),
+            np.array([[[0.1]]], dtype=float),
+        ]
+        rmse_seq = [
+            np.array([[0.2]], dtype=float),
+            np.array([[0.05]], dtype=float),
+            np.array([[0.4]], dtype=float),
+        ]
+        fitted_seq = [
+            np.array([[[0.3]]], dtype=float),
+            np.array([[[0.6]]], dtype=float),
+            np.array([[[0.1]]], dtype=float),
+        ]
+        overlap_seq = [
+            (np.array([[1.0]], dtype=float), ["bilirubin"]),
+            (np.array([[2.0]], dtype=float), ["bilirubin"]),
+            (np.array([[3.0]], dtype=float), ["bilirubin"]),
+        ]
+        pathlength_seq = [
+            np.array([1.0], dtype=float),
+            np.array([2.0], dtype=float),
+            np.array([3.0], dtype=float),
+            np.array([4.0], dtype=float),
+        ]
+
+        with (
+            mock.patch.object(
+                processing,
+                "estimate_effective_pathlength",
+                side_effect=pathlength_seq,
+            ),
+            mock.patch.object(
+                processing,
+                "build_overlap_matrix",
+                side_effect=overlap_seq,
+            ),
+            mock.patch.object(
+                processing,
+                "_solve_unmixing_nnls",
+                side_effect=list(zip(concentrations_seq, rmse_seq, fitted_seq)),
+            ),
+        ):
+            concentrations, rmse_map, fitted_od, solver_info = (
+                processing.solve_unmixing_iterative(
+                    od_cube,
+                    static_A,
+                    common_wl,
+                    led_emission,
+                    chromophore_spectra,
+                    led_wavelengths=[500],
+                    chromophore_names=["bilirubin"],
+                    include_background=False,
+                    damping=1.0,
+                    max_iter=3,
+                )
+            )
+
+        self.assertTrue(np.allclose(concentrations, concentrations_seq[1]))
+        self.assertTrue(np.allclose(rmse_map, rmse_seq[1]))
+        self.assertTrue(np.allclose(fitted_od, fitted_seq[1]))
+        self.assertTrue(np.allclose(solver_info["A_used"], overlap_seq[1][0]))
+        self.assertTrue(np.allclose(solver_info["pathlength_spectrum"], pathlength_seq[1]))
+        self.assertEqual(solver_info["stop_reason"], "max_iter")
+        self.assertEqual(solver_info["n_iter"], 3)
+        self.assertEqual(solver_info["best_iter"], 2)
+        self.assertEqual(solver_info["returned_iter"], 2)
+        self.assertAlmostEqual(solver_info["best_mean_rmse"], 0.05)
+        self.assertAlmostEqual(solver_info["returned_mean_rmse"], 0.05)
 
 
 if __name__ == "__main__":
