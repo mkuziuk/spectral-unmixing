@@ -39,7 +39,7 @@ def test_main_default_routes_to_qt_runner():
     run_qt.assert_called_once_with()
 
 
-def test_run_qt_creates_qapplication_and_shows_main_window():
+def test_run_qt_creates_qapplication_and_shows_main_window_maximized():
     from app.main import run_qt
     import importlib
     from app.gui_qt import main_window as main_window_module
@@ -61,6 +61,8 @@ def test_run_qt_creates_qapplication_and_shows_main_window():
             return 0
 
     fake_qtwidgets = types.SimpleNamespace(QApplication=FakeQApplication)
+    fake_qtimer = mock.Mock()
+    fake_qtcore = types.SimpleNamespace(QTimer=fake_qtimer)
     fake_window = mock.Mock()
     fake_window._impl = mock.Mock()
 
@@ -69,6 +71,8 @@ def test_run_qt_creates_qapplication_and_shows_main_window():
     def _import_module_side_effect(name: str):
         if name == "PySide6.QtWidgets":
             return fake_qtwidgets
+        if name == "PySide6.QtCore":
+            return fake_qtcore
         return real_import_module(name)
 
     with (
@@ -79,7 +83,11 @@ def test_run_qt_creates_qapplication_and_shows_main_window():
         code = run_qt()
 
     assert code == 0
-    fake_window._impl.show.assert_called_once_with()
+    fake_window.show_full_size.assert_called_once_with()
+    fake_qtimer.singleShot.assert_has_calls([
+        mock.call(0, fake_window.show_full_size),
+        mock.call(250, fake_window.show_full_size),
+    ])
 
 
 def test_run_qt_reports_missing_pyside6(capsys):

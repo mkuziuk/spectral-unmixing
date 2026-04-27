@@ -46,6 +46,7 @@ def run_qt() -> int:
 
     try:
         QApplication = importlib.import_module("PySide6.QtWidgets").QApplication
+        QTimer = importlib.import_module("PySide6.QtCore").QTimer
     except Exception:
         print(_build_missing_pyside6_message(), file=sys.stderr)
         return 2
@@ -57,7 +58,9 @@ def run_qt() -> int:
         qt_app = QApplication(sys.argv or ["spectral-unmixing"])
 
     main_window = SpectralUnmixingMainWindow()
-    main_window._impl.show()
+    main_window.show_full_size()
+    QTimer.singleShot(0, main_window.show_full_size)
+    QTimer.singleShot(250, main_window.show_full_size)
     return int(qt_app.exec())
 
 
