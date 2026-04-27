@@ -53,7 +53,12 @@ CHROMOPHORE_MENU_OBJECT_NAME: str = "chromophore_menu"
 SOLVER_LABEL_OBJECT_NAME: str = "solver_label"
 SOLVER_COMBO_OBJECT_NAME: str = "solver_combo"
 BACKGROUND_LABEL_OBJECT_NAME: str = "background_label"
+BG_MODEL_COMBO_OBJECT_NAME: str = "bg_model_combo"
 BG_ENTRY_OBJECT_NAME: str = "bg_entry"
+BG_EXP_START_LABEL_OBJECT_NAME: str = "bg_exp_start_label"
+BG_EXP_START_ENTRY_OBJECT_NAME: str = "bg_exp_start_entry"
+BG_EXP_END_LABEL_OBJECT_NAME: str = "bg_exp_end_label"
+BG_EXP_END_ENTRY_OBJECT_NAME: str = "bg_exp_end_entry"
 RUN_BTN_OBJECT_NAME: str = "run_btn"
 SAVE_BTN_OBJECT_NAME: str = "save_btn"
 PROGRESS_BAR_OBJECT_NAME: str = "progress_bar"
@@ -71,6 +76,19 @@ SCATTERING_LIPOFUNDIN_LABEL_OBJECT_NAME: str = "scattering_lipofundin_label"
 SCATTERING_LIPOFUNDIN_ENTRY_OBJECT_NAME: str = "scattering_lipofundin_entry"
 SCATTERING_ANISOTROPY_LABEL_OBJECT_NAME: str = "scattering_anisotropy_label"
 SCATTERING_ANISOTROPY_ENTRY_OBJECT_NAME: str = "scattering_anisotropy_entry"
+ITERATIVE_TOOLBAR_OBJECT_NAME: str = "iterative_toolbar"
+ITERATIVE_TITLE_OBJECT_NAME: str = "iterative_title"
+ITERATIVE_MAX_ITER_LABEL_OBJECT_NAME: str = "iterative_max_iter_label"
+ITERATIVE_MAX_ITER_ENTRY_OBJECT_NAME: str = "iterative_max_iter_entry"
+ITERATIVE_TOL_REL_LABEL_OBJECT_NAME: str = "iterative_tol_rel_label"
+ITERATIVE_TOL_REL_ENTRY_OBJECT_NAME: str = "iterative_tol_rel_entry"
+ITERATIVE_TOL_RMSE_LABEL_OBJECT_NAME: str = "iterative_tol_rmse_label"
+ITERATIVE_TOL_RMSE_ENTRY_OBJECT_NAME: str = "iterative_tol_rmse_entry"
+ITERATIVE_DAMPING_LABEL_OBJECT_NAME: str = "iterative_damping_label"
+ITERATIVE_DAMPING_ENTRY_OBJECT_NAME: str = "iterative_damping_entry"
+ITERATIVE_INITIAL_CONC_LABEL_OBJECT_NAME: str = "iterative_initial_conc_label"
+ITERATIVE_INITIAL_CONC_ENTRY_OBJECT_NAME: str = "iterative_initial_conc_entry"
+ITERATIVE_RESET_BTN_OBJECT_NAME: str = "iterative_reset_btn"
 
 
 # ---------------------------------------------------------------------------
@@ -111,9 +129,16 @@ class SpectralUnmixingMainWindow:
 
         self._chromophore_menu: Any = None
         self._background_label_action: Any = None
+        self._background_model_action: Any = None
         self._background_entry_action: Any = None
+        self._background_exp_start_label_action: Any = None
+        self._background_exp_start_entry_action: Any = None
+        self._background_exp_end_label_action: Any = None
+        self._background_exp_end_entry_action: Any = None
         self._bg_value: float = 2500.0
+        self._background_params: Dict[str, float | str] = self._default_background_parameters()
         self._scattering_params: Dict[str, float] = self._default_scattering_parameters()
+        self._iterative_params: Dict[str, float | int] = self._default_iterative_parameters()
         self._set_window_properties()
         self._setup_ui()
 
@@ -199,6 +224,9 @@ class SpectralUnmixingMainWindow:
         scattering_toolbar = self._build_scattering_toolbar(self._impl)
         self._impl.addToolBarBreak(Qt.TopToolBarArea)
         self._impl.addToolBar(Qt.TopToolBarArea, scattering_toolbar)
+        iterative_toolbar = self._build_iterative_toolbar(self._impl)
+        self._impl.addToolBarBreak(Qt.TopToolBarArea)
+        self._impl.addToolBar(Qt.TopToolBarArea, iterative_toolbar)
 
         # -- central splitter ------------------------------------------------
         splitter = QSplitter(Qt.Orientation.Horizontal, self._impl)
@@ -293,40 +321,78 @@ class SpectralUnmixingMainWindow:
         background_label.setObjectName(BACKGROUND_LABEL_OBJECT_NAME)
         self._background_label_action = toolbar.addWidget(background_label)
 
-        # 8) bg_entry
+        # 8) bg_model_combo
+        bg_model_combo = QComboBox(toolbar)
+        bg_model_combo.setObjectName(BG_MODEL_COMBO_OBJECT_NAME)
+        bg_model_combo.setEditable(False)
+        bg_model_combo.addItems(["constant", "exponential"])
+        bg_model_combo.setCurrentText(str(self._background_params["model"]))
+        bg_model_combo.currentTextChanged.connect(self._on_background_model_changed)
+        self._background_model_action = toolbar.addWidget(bg_model_combo)
+
+        # 9) bg_entry
         bg_entry = QLineEdit(toolbar)
         bg_entry.setObjectName(BG_ENTRY_OBJECT_NAME)
-        bg_entry.setText("2500.0")
+        bg_entry.setText(str(self._background_params["value"]))
+        bg_entry.setMaximumWidth(92)
+        bg_entry.setAlignment(Qt.AlignmentFlag.AlignRight)
         bg_entry.editingFinished.connect(self._on_bg_editing_finished)
         self._background_entry_action = toolbar.addWidget(bg_entry)
 
-        # 9) run_btn
+        # 10) exponential background controls
+        bg_exp_start_label = QLabel("exp start:", toolbar)
+        bg_exp_start_label.setObjectName(BG_EXP_START_LABEL_OBJECT_NAME)
+        self._background_exp_start_label_action = toolbar.addWidget(bg_exp_start_label)
+
+        bg_exp_start_entry = QLineEdit(toolbar)
+        bg_exp_start_entry.setObjectName(BG_EXP_START_ENTRY_OBJECT_NAME)
+        bg_exp_start_entry.setText(str(self._background_params["exp_start"]))
+        bg_exp_start_entry.setMaximumWidth(72)
+        bg_exp_start_entry.setAlignment(Qt.AlignmentFlag.AlignRight)
+        bg_exp_start_entry.editingFinished.connect(partial(self._on_background_exp_editing_finished, "exp_start"))
+        self._background_exp_start_entry_action = toolbar.addWidget(bg_exp_start_entry)
+
+        bg_exp_end_label = QLabel("exp end:", toolbar)
+        bg_exp_end_label.setObjectName(BG_EXP_END_LABEL_OBJECT_NAME)
+        self._background_exp_end_label_action = toolbar.addWidget(bg_exp_end_label)
+
+        bg_exp_end_entry = QLineEdit(toolbar)
+        bg_exp_end_entry.setObjectName(BG_EXP_END_ENTRY_OBJECT_NAME)
+        bg_exp_end_entry.setText(str(self._background_params["exp_end"]))
+        bg_exp_end_entry.setMaximumWidth(72)
+        bg_exp_end_entry.setAlignment(Qt.AlignmentFlag.AlignRight)
+        bg_exp_end_entry.editingFinished.connect(partial(self._on_background_exp_editing_finished, "exp_end"))
+        self._background_exp_end_entry_action = toolbar.addWidget(bg_exp_end_entry)
+
+        self._set_background_model_controls(str(self._background_params["model"]))
+
+        # 11) run_btn
         run_btn = QPushButton("Run", toolbar)
         run_btn.setObjectName(RUN_BTN_OBJECT_NAME)
         run_btn.setEnabled(False)
         run_btn.clicked.connect(self._on_run_clicked)
         toolbar.addWidget(run_btn)
 
-        # 10) save_btn
+        # 12) save_btn
         save_btn = QPushButton("Save", toolbar)
         save_btn.setObjectName(SAVE_BTN_OBJECT_NAME)
         save_btn.setEnabled(False)
         save_btn.clicked.connect(self._on_save_clicked)
         toolbar.addWidget(save_btn)
 
-        # 11) progress_bar
+        # 13) progress_bar
         progress_bar = QProgressBar(toolbar)
         progress_bar.setObjectName(PROGRESS_BAR_OBJECT_NAME)
         progress_bar.setRange(0, 100)
         progress_bar.setValue(0)
         toolbar.addWidget(progress_bar)
 
-        # 12) data_source_label
+        # 14) data_source_label
         data_source_label = QLabel("Data: default (not found)", toolbar)
         data_source_label.setObjectName(DATA_SOURCE_LABEL_OBJECT_NAME)
         toolbar.addWidget(data_source_label)
 
-        # 13) status_label
+        # 15) status_label
         status_label = QLabel("Ready", toolbar)
         status_label.setObjectName(STATUS_LABEL_OBJECT_NAME)
         toolbar.addWidget(status_label)
@@ -351,17 +417,54 @@ class SpectralUnmixingMainWindow:
         toolbar.addWidget(title)
 
         fields = [
-            ("lambda0 (nm):", SCATTERING_LAMBDA0_LABEL_OBJECT_NAME, SCATTERING_LAMBDA0_ENTRY_OBJECT_NAME, "lambda0_nm"),
-            ("mu_s_500 (cm^-1):", SCATTERING_MU_S_500_LABEL_OBJECT_NAME, SCATTERING_MU_S_500_ENTRY_OBJECT_NAME, "mu_s_500_cm1"),
-            ("b:", SCATTERING_POWER_LABEL_OBJECT_NAME, SCATTERING_POWER_ENTRY_OBJECT_NAME, "power_b"),
-            ("lipo frac:", SCATTERING_LIPOFUNDIN_LABEL_OBJECT_NAME, SCATTERING_LIPOFUNDIN_ENTRY_OBJECT_NAME, "lipofundin_fraction"),
-            ("g:", SCATTERING_ANISOTROPY_LABEL_OBJECT_NAME, SCATTERING_ANISOTROPY_ENTRY_OBJECT_NAME, "anisotropy_g"),
+            (
+                "lambda0 (nm):",
+                SCATTERING_LAMBDA0_LABEL_OBJECT_NAME,
+                SCATTERING_LAMBDA0_ENTRY_OBJECT_NAME,
+                "lambda0_nm",
+                "Reference wavelength for the fixed-scattering power law. "
+                "The scattering scale is normalized relative to this wavelength; "
+                "500 nm is the usual reference for the current model.",
+            ),
+            (
+                "mu_s_500 (cm^-1):",
+                SCATTERING_MU_S_500_LABEL_OBJECT_NAME,
+                SCATTERING_MU_S_500_ENTRY_OBJECT_NAME,
+                "mu_s_500_cm1",
+                "Scattering coefficient scale at the reference wavelength. "
+                "Increasing it strengthens the scattering prior used by mu_a and iterative solvers.",
+            ),
+            (
+                "b:",
+                SCATTERING_POWER_LABEL_OBJECT_NAME,
+                SCATTERING_POWER_ENTRY_OBJECT_NAME,
+                "power_b",
+                "Power-law exponent for wavelength-dependent scattering. "
+                "Larger values make scattering decrease faster at longer wavelengths.",
+            ),
+            (
+                "lipo frac:",
+                SCATTERING_LIPOFUNDIN_LABEL_OBJECT_NAME,
+                SCATTERING_LIPOFUNDIN_ENTRY_OBJECT_NAME,
+                "lipofundin_fraction",
+                "Multiplicative lipofundin fraction applied to the scattering prior. "
+                "Larger values increase the modeled scattering contribution.",
+            ),
+            (
+                "g:",
+                SCATTERING_ANISOTROPY_LABEL_OBJECT_NAME,
+                SCATTERING_ANISOTROPY_ENTRY_OBJECT_NAME,
+                "anisotropy_g",
+                "Scattering anisotropy factor in the range [0, 1). "
+                "The reduced scattering term is scaled by (1 - g), so values closer to 1 reduce it.",
+            ),
         ]
 
-        for label_text, label_name, entry_name, key in fields:
+        for label_text, label_name, entry_name, key, tooltip in fields:
             label = QLabel(label_text, toolbar)
             label.setObjectName(label_name)
             toolbar.addWidget(label)
+            toolbar.addWidget(self._make_help_label(toolbar, tooltip, f"{label_name}_help"))
 
             entry = QLineEdit(toolbar)
             entry.setObjectName(entry_name)
@@ -373,10 +476,114 @@ class SpectralUnmixingMainWindow:
 
         return toolbar
 
+    def _build_iterative_toolbar(self, parent: Any):
+        """Construct an iterative-solver toolbar shown only for the iterative method."""
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QLabel, QLineEdit, QPushButton, QToolBar
+
+        toolbar = QToolBar("Iterative Solver Toolbar", parent)
+        toolbar.setObjectName(ITERATIVE_TOOLBAR_OBJECT_NAME)
+        toolbar.setMovable(False)
+        toolbar.setFloatable(False)
+        toolbar.setAllowedAreas(Qt.ToolBarArea.TopToolBarArea)
+        toolbar.setVisible(False)
+
+        title = QLabel("Iterative solver:", toolbar)
+        title.setObjectName(ITERATIVE_TITLE_OBJECT_NAME)
+        title.setStyleSheet("font-weight: 600;")
+        toolbar.addWidget(title)
+
+        fields = [
+            (
+                "Max iter:",
+                ITERATIVE_MAX_ITER_LABEL_OBJECT_NAME,
+                ITERATIVE_MAX_ITER_ENTRY_OBJECT_NAME,
+                "max_iter",
+                "Maximum number of pathlength/overlap-matrix update cycles. "
+                "Higher values can improve convergence but increase runtime.",
+            ),
+            (
+                "Path tol:",
+                ITERATIVE_TOL_REL_LABEL_OBJECT_NAME,
+                ITERATIVE_TOL_REL_ENTRY_OBJECT_NAME,
+                "tol_rel",
+                "Relative pathlength-change tolerance. "
+                "The solver stops when the updated pathlength changes by less than this threshold.",
+            ),
+            (
+                "RMSE improvement tol:",
+                ITERATIVE_TOL_RMSE_LABEL_OBJECT_NAME,
+                ITERATIVE_TOL_RMSE_ENTRY_OBJECT_NAME,
+                "tol_rmse",
+                "Minimum mean-RMSE improvement required to continue after the first iteration. "
+                "Larger values stop earlier; smaller values demand more refinement.",
+            ),
+            (
+                "Damping:",
+                ITERATIVE_DAMPING_LABEL_OBJECT_NAME,
+                ITERATIVE_DAMPING_ENTRY_OBJECT_NAME,
+                "damping",
+                "Blend factor for each new modeled pathlength. "
+                "Lower values are more stable but slower; 1.0 fully replaces the previous pathlength.",
+            ),
+            (
+                "Initial conc:",
+                ITERATIVE_INITIAL_CONC_LABEL_OBJECT_NAME,
+                ITERATIVE_INITIAL_CONC_ENTRY_OBJECT_NAME,
+                "initial_concentration",
+                "Initial chromophore concentration used to seed the first pathlength estimate. "
+                "Background, if enabled, is not used for pathlength updates.",
+            ),
+        ]
+
+        for label_text, label_name, entry_name, key, tooltip in fields:
+            label = QLabel(label_text, toolbar)
+            label.setObjectName(label_name)
+            toolbar.addWidget(label)
+            toolbar.addWidget(self._make_help_label(toolbar, tooltip, f"{label_name}_help"))
+
+            entry = QLineEdit(toolbar)
+            entry.setObjectName(entry_name)
+            entry.setText(str(self._iterative_params[key]))
+            entry.setMaximumWidth(92)
+            entry.setAlignment(Qt.AlignmentFlag.AlignRight)
+            entry.editingFinished.connect(partial(self._on_iterative_editing_finished, key))
+            toolbar.addWidget(entry)
+
+        reset_btn = QPushButton("Reset defaults", toolbar)
+        reset_btn.setObjectName(ITERATIVE_RESET_BTN_OBJECT_NAME)
+        reset_btn.clicked.connect(self._on_iterative_reset_clicked)
+        toolbar.addWidget(reset_btn)
+
+        return toolbar
+
     @staticmethod
     def _noop(*args: Any, **kwargs: Any) -> None:
         """No-op placeholder callback for QT-003 controls."""
         return None
+
+    @staticmethod
+    def _make_help_label(parent: Any, tooltip: str, object_name: str):
+        """Create a compact '?' label with a hover tooltip."""
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QLabel
+
+        label = QLabel("?", parent)
+        label.setObjectName(object_name)
+        label.setToolTip(tooltip)
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label.setFixedSize(16, 16)
+        label.setStyleSheet(
+            "QLabel {"
+            " border: 1px solid #8a8a8a;"
+            " border-radius: 8px;"
+            " color: #555;"
+            " font-size: 10px;"
+            " font-weight: 600;"
+            " background: #f7f7f7;"
+            "}"
+        )
+        return label
 
     # -- QT-013: toolbar callbacks and state transitions --------------------
 
@@ -671,33 +878,41 @@ class SpectralUnmixingMainWindow:
         if not self.data_dir:
             raise RuntimeError("Select a valid data folder before running.")
 
-        from PySide6.QtWidgets import QComboBox, QLineEdit
+        from PySide6.QtWidgets import QComboBox
 
         solver_combo = self._impl.findChild(QComboBox, SOLVER_COMBO_OBJECT_NAME)
-        bg_entry = self._impl.findChild(QLineEdit, BG_ENTRY_OBJECT_NAME)
 
         solver_method = solver_combo.currentText() if solver_combo is not None else "ls"
         use_fixed_scattering = self._uses_fixed_scattering_solver(solver_method)
+        supports_background = solver_method != "mu_a"
+        background_parameters = None
         scattering_parameters = None
+        iterative_parameters = None
+
+        if supports_background:
+            try:
+                background_parameters = self._read_background_params_from_ui()
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"Invalid background parameters: {exc}") from exc
+            bg_value = float(background_parameters["value"])
+        else:
+            bg_value = self._bg_value
 
         if use_fixed_scattering:
-            bg_value = self._bg_value
             try:
                 scattering_parameters = self._read_scattering_params_from_ui()
             except (TypeError, ValueError) as exc:
                 raise ValueError(f"Invalid scattering parameters: {exc}") from exc
-        else:
-            bg_raw = bg_entry.text().strip() if bg_entry is not None else str(self._bg_value)
-            try:
-                bg_value = float(bg_raw)
-            except (TypeError, ValueError) as exc:
-                raise ValueError(f"Background value must be numeric: {bg_raw!r}") from exc
-            self._bg_value = bg_value
+            if solver_method == "iterative":
+                try:
+                    iterative_parameters = self._read_iterative_params_from_ui()
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(f"Invalid iterative solver parameters: {exc}") from exc
 
         selected = self.get_selection(include_background=True)
         include_background = "Background" in selected
         selected_chroms = [name for name in selected if name != "Background"]
-        if use_fixed_scattering:
+        if solver_method == "mu_a":
             include_background = False
             if not selected_chroms:
                 raise ValueError(
@@ -712,7 +927,9 @@ class SpectralUnmixingMainWindow:
             "folder_info": dict(self.folder_info),
             "solver_method": solver_method,
             "background_value": bg_value,
+            "background_parameters": background_parameters,
             "scattering_parameters": scattering_parameters,
+            "iterative_parameters": iterative_parameters,
             "include_background": include_background,
             "selected_chromophores": selected_chroms,
         }
@@ -753,18 +970,7 @@ class SpectralUnmixingMainWindow:
                     **snapshot["scattering_parameters"],
                 )
             elif snapshot["solver_method"] == "iterative":
-                A, chrom_names = processing.build_overlap_matrix(
-                    led_wl,
-                    led_em,
-                    chrom_spectra,
-                    pen_wl,
-                    pen_depth,
-                    wls,
-                    chromophore_names=snapshot["selected_chromophores"],
-                    include_background=False,
-                    background_value=snapshot["background_value"],
-                )
-            else:
+                background_parameters = snapshot["background_parameters"]
                 A, chrom_names = processing.build_overlap_matrix(
                     led_wl,
                     led_em,
@@ -774,7 +980,26 @@ class SpectralUnmixingMainWindow:
                     wls,
                     chromophore_names=snapshot["selected_chromophores"],
                     include_background=snapshot["include_background"],
-                    background_value=snapshot["background_value"],
+                    background_value=background_parameters["value"],
+                    background_model=background_parameters["model"],
+                    background_exp_start=background_parameters["exp_start"],
+                    background_exp_end=background_parameters["exp_end"],
+                )
+            else:
+                background_parameters = snapshot["background_parameters"]
+                A, chrom_names = processing.build_overlap_matrix(
+                    led_wl,
+                    led_em,
+                    chrom_spectra,
+                    pen_wl,
+                    pen_depth,
+                    wls,
+                    chromophore_names=snapshot["selected_chromophores"],
+                    include_background=snapshot["include_background"],
+                    background_value=background_parameters["value"],
+                    background_model=background_parameters["model"],
+                    background_exp_start=background_parameters["exp_start"],
+                    background_exp_end=background_parameters["exp_end"],
                 )
 
             results: Dict[str, Dict[str, Any]] = {}
@@ -794,9 +1019,13 @@ class SpectralUnmixingMainWindow:
                             chrom_spectra,
                             wls,
                             chromophore_names=chrom_names,
-                            include_background=False,
-                            background_value=snapshot["background_value"],
+                            include_background=snapshot["include_background"],
+                            background_value=background_parameters["value"],
+                            background_model=background_parameters["model"],
+                            background_exp_start=background_parameters["exp_start"],
+                            background_exp_end=background_parameters["exp_end"],
                             scattering_parameters=snapshot["scattering_parameters"],
+                            **(snapshot.get("iterative_parameters") or {}),
                         )
                     )
                     active_A = solver_info.get("A_used", A)
@@ -829,7 +1058,9 @@ class SpectralUnmixingMainWindow:
                     "chromophore_names": chrom_names,
                     "include_background": snapshot["include_background"],
                     "background_value": snapshot["background_value"],
+                    "background_parameters": snapshot["background_parameters"],
                     "scattering_parameters": snapshot["scattering_parameters"],
+                    "iterative_parameters": snapshot["iterative_parameters"],
                     "solver_info": solver_info,
                     "solver_method": snapshot["solver_method"],
                     "wavelengths": wls,
@@ -888,6 +1119,20 @@ class SpectralUnmixingMainWindow:
         return processing.get_default_scattering_parameters()
 
     @staticmethod
+    def _default_background_parameters() -> Dict[str, float | str]:
+        """Return the default background basis parameters."""
+        from app.core import processing
+
+        return processing.get_default_background_parameters()
+
+    @staticmethod
+    def _default_iterative_parameters() -> Dict[str, float | int]:
+        """Return the default convergence parameter set used by the iterative solver."""
+        from app.core import processing
+
+        return processing.get_default_iterative_solver_parameters()
+
+    @staticmethod
     def _uses_fixed_scattering_solver(solver_method: str) -> bool:
         """Return True when a solver uses the fixed-scattering controls."""
         return solver_method in {"mu_a", "iterative"}
@@ -903,6 +1148,78 @@ class SpectralUnmixingMainWindow:
             ("anisotropy_g", "g", SCATTERING_ANISOTROPY_ENTRY_OBJECT_NAME),
         )
 
+    @staticmethod
+    def _iterative_entry_specs() -> tuple[tuple[str, str, str], ...]:
+        """Return ordered iterative parameter specs: key, label, objectName."""
+        return (
+            ("max_iter", "max_iter", ITERATIVE_MAX_ITER_ENTRY_OBJECT_NAME),
+            ("tol_rel", "path_tol", ITERATIVE_TOL_REL_ENTRY_OBJECT_NAME),
+            ("tol_rmse", "rmse_improvement_tol", ITERATIVE_TOL_RMSE_ENTRY_OBJECT_NAME),
+            ("damping", "damping", ITERATIVE_DAMPING_ENTRY_OBJECT_NAME),
+            ("initial_concentration", "initial_conc", ITERATIVE_INITIAL_CONC_ENTRY_OBJECT_NAME),
+        )
+
+    def _read_background_params_from_ui(self) -> Dict[str, float | str]:
+        """Read, validate, and cache background basis parameters from toolbar entries."""
+        from PySide6.QtWidgets import QComboBox, QLineEdit
+        from app.core import processing
+
+        model_combo = self._impl.findChild(QComboBox, BG_MODEL_COMBO_OBJECT_NAME)
+        value_entry = self._impl.findChild(QLineEdit, BG_ENTRY_OBJECT_NAME)
+        exp_start_entry = self._impl.findChild(QLineEdit, BG_EXP_START_ENTRY_OBJECT_NAME)
+        exp_end_entry = self._impl.findChild(QLineEdit, BG_EXP_END_ENTRY_OBJECT_NAME)
+
+        model = model_combo.currentText() if model_combo is not None else self._background_params["model"]
+        raw_params = {
+            "model": model,
+            "value": value_entry.text().strip() if value_entry is not None else self._background_params["value"],
+            "exp_start": self._background_params["exp_start"],
+            "exp_end": self._background_params["exp_end"],
+        }
+        if model == "exponential":
+            raw_params["exp_start"] = (
+                exp_start_entry.text().strip()
+                if exp_start_entry is not None
+                else self._background_params["exp_start"]
+            )
+            raw_params["exp_end"] = (
+                exp_end_entry.text().strip()
+                if exp_end_entry is not None
+                else self._background_params["exp_end"]
+            )
+
+        validated = processing.validate_background_parameters(raw_params)
+        self._background_params = validated
+        self._bg_value = float(validated["value"])
+        return dict(validated)
+
+    def _set_background_model_controls(
+        self,
+        model: str | None = None,
+        background_enabled: bool = True,
+    ) -> None:
+        """Toggle constant vs exponential background controls."""
+        if model is None:
+            model = str(self._background_params.get("model", "constant"))
+        use_exponential = model == "exponential"
+
+        if self._background_label_action is not None:
+            self._background_label_action.setVisible(background_enabled)
+        if self._background_model_action is not None:
+            self._background_model_action.setVisible(background_enabled)
+        if self._background_entry_action is not None:
+            self._background_entry_action.setVisible(background_enabled and not use_exponential)
+
+        exp_visible = background_enabled and use_exponential
+        for action in (
+            self._background_exp_start_label_action,
+            self._background_exp_start_entry_action,
+            self._background_exp_end_label_action,
+            self._background_exp_end_entry_action,
+        ):
+            if action is not None:
+                action.setVisible(exp_visible)
+
     def _read_scattering_params_from_ui(self) -> Dict[str, float]:
         """Read, validate, and cache scattering parameters from toolbar entries."""
         from PySide6.QtWidgets import QLineEdit
@@ -917,26 +1234,36 @@ class SpectralUnmixingMainWindow:
         self._scattering_params = validated
         return dict(validated)
 
+    def _read_iterative_params_from_ui(self) -> Dict[str, float | int]:
+        """Read, validate, and cache iterative solver parameters from toolbar entries."""
+        from PySide6.QtWidgets import QLineEdit
+        from app.core import processing
+
+        raw_params = {}
+        for key, _label, object_name in self._iterative_entry_specs():
+            entry = self._impl.findChild(QLineEdit, object_name)
+            raw_params[key] = entry.text().strip() if entry is not None else self._iterative_params[key]
+
+        validated = processing.validate_iterative_solver_parameters(raw_params)
+        self._iterative_params = validated
+        return dict(validated)
+
     def _set_solver_dependent_controls(self, solver_method: str) -> None:
         """Toggle background vs fixed-scattering controls based on solver."""
-        from PySide6.QtWidgets import QLineEdit, QLabel, QToolBar
+        from PySide6.QtWidgets import QToolBar
 
         use_fixed_scattering = self._uses_fixed_scattering_solver(solver_method)
+        use_iterative_controls = solver_method == "iterative"
+        use_background_controls = solver_method != "mu_a"
 
-        background_label = self._impl.findChild(QLabel, BACKGROUND_LABEL_OBJECT_NAME)
-        background_entry = self._impl.findChild(QLineEdit, BG_ENTRY_OBJECT_NAME)
         scattering_toolbar = self._impl.findChild(QToolBar, SCATTERING_TOOLBAR_OBJECT_NAME)
+        iterative_toolbar = self._impl.findChild(QToolBar, ITERATIVE_TOOLBAR_OBJECT_NAME)
 
-        if background_label is not None:
-            background_label.setVisible(not use_fixed_scattering)
-        if self._background_label_action is not None:
-            self._background_label_action.setVisible(not use_fixed_scattering)
-        if background_entry is not None:
-            background_entry.setVisible(not use_fixed_scattering)
-        if self._background_entry_action is not None:
-            self._background_entry_action.setVisible(not use_fixed_scattering)
+        self._set_background_model_controls(background_enabled=use_background_controls)
         if scattering_toolbar is not None:
             scattering_toolbar.setVisible(use_fixed_scattering)
+        if iterative_toolbar is not None:
+            iterative_toolbar.setVisible(use_iterative_controls)
 
     def _on_solver_method_changed(self, solver_method: str) -> None:
         """Update solver-specific controls when the dropdown selection changes."""
@@ -947,6 +1274,31 @@ class SpectralUnmixingMainWindow:
     def get_background_value(self) -> float:
         """Return the last validated background value."""
         return self._bg_value
+
+    def get_background_parameters(self) -> Dict[str, float | str]:
+        """Return the last validated background basis parameters."""
+        return dict(self._background_params)
+
+    def _on_background_model_changed(self, model: str) -> None:
+        """Update visible background parameter controls when the model changes."""
+        from PySide6.QtWidgets import QComboBox, QLabel
+
+        combo = self._impl.findChild(QComboBox, BG_MODEL_COMBO_OBJECT_NAME)
+        status_label = self._impl.findChild(QLabel, STATUS_LABEL_OBJECT_NAME)
+        previous = str(self._background_params["model"])
+
+        try:
+            params = self._read_background_params_from_ui()
+        except (TypeError, ValueError) as exc:
+            if combo is not None:
+                combo.setCurrentText(previous)
+            if status_label is not None:
+                status_label.setText(f"Invalid background model: {exc}")
+            return
+
+        self._set_background_model_controls(str(params["model"]))
+        if status_label is not None and model != previous:
+            status_label.setText(f"Background model = {params['model']}")
 
     def _on_bg_editing_finished(self) -> None:
         """Parse and validate the background QLineEdit on editingFinished.
@@ -965,22 +1317,55 @@ class SpectralUnmixingMainWindow:
 
         raw = bg_entry.text().strip()
         try:
-            value = float(raw)
-        except (ValueError, TypeError):
+            params = self._read_background_params_from_ui()
+        except (ValueError, TypeError) as exc:
             # Revert to last valid value
             bg_entry.setText(str(self._bg_value))
             if status_label is not None:
-                status_label.setText(f"Invalid background: {raw!r}")
+                status_label.setText(f"Invalid background: {exc}")
             return
 
         previous = self._bg_value
-        self._bg_value = value
+        value = float(params["value"])
+        bg_entry.setText(str(value))
 
         # Avoid clobbering more important status messages (for example,
         # pipeline failure text) when editingFinished is emitted on focus
         # transitions but the value itself did not change.
         if status_label is not None and value != previous:
             status_label.setText(f"Background = {value}")
+
+    def _on_background_exp_editing_finished(self, key: str) -> None:
+        """Validate one exponential background parameter."""
+        from PySide6.QtWidgets import QLineEdit, QLabel
+
+        entry_map = {
+            "exp_start": BG_EXP_START_ENTRY_OBJECT_NAME,
+            "exp_end": BG_EXP_END_ENTRY_OBJECT_NAME,
+        }
+        label_map = {
+            "exp_start": "exp_start",
+            "exp_end": "exp_end",
+        }
+
+        entry = self._impl.findChild(QLineEdit, entry_map[key])
+        status_label = self._impl.findChild(QLabel, STATUS_LABEL_OBJECT_NAME)
+        if entry is None:
+            return
+
+        previous = self._background_params[key]
+        try:
+            params = self._read_background_params_from_ui()
+        except (TypeError, ValueError) as exc:
+            entry.setText(str(self._background_params[key]))
+            if status_label is not None:
+                status_label.setText(f"Invalid {label_map[key]}: {exc}")
+            return
+
+        value = params[key]
+        entry.setText(str(value))
+        if status_label is not None and value != previous:
+            status_label.setText(f"{label_map[key]} = {value}")
 
     def _on_scattering_editing_finished(self, key: str) -> None:
         """Validate one scattering entry while preserving the rest of the config."""
@@ -1007,6 +1392,48 @@ class SpectralUnmixingMainWindow:
         entry.setText(str(value))
         if status_label is not None and value != previous:
             status_label.setText(f"{label_map[key]} = {value}")
+
+    def _on_iterative_editing_finished(self, key: str) -> None:
+        """Validate one iterative entry while preserving the rest of the config."""
+        from PySide6.QtWidgets import QLineEdit, QLabel
+
+        entry_map = {entry_key: object_name for entry_key, _label, object_name in self._iterative_entry_specs()}
+        label_map = {entry_key: label for entry_key, label, _object_name in self._iterative_entry_specs()}
+
+        entry = self._impl.findChild(QLineEdit, entry_map[key])
+        status_label = self._impl.findChild(QLabel, STATUS_LABEL_OBJECT_NAME)
+        if entry is None:
+            return
+
+        previous = self._iterative_params[key]
+        try:
+            params = self._read_iterative_params_from_ui()
+        except (TypeError, ValueError) as exc:
+            entry.setText(str(self._iterative_params[key]))
+            if status_label is not None:
+                status_label.setText(f"Invalid {label_map[key]}: {exc}")
+            return
+
+        value = params[key]
+        entry.setText(str(value))
+        if status_label is not None and value != previous:
+            status_label.setText(f"{label_map[key]} = {value}")
+
+    def _on_iterative_reset_clicked(self) -> None:
+        """Reset iterative solver entries to core defaults."""
+        from PySide6.QtWidgets import QLineEdit, QLabel
+
+        defaults = self._default_iterative_parameters()
+        self._iterative_params = dict(defaults)
+
+        for key, _label, object_name in self._iterative_entry_specs():
+            entry = self._impl.findChild(QLineEdit, object_name)
+            if entry is not None:
+                entry.setText(str(defaults[key]))
+
+        status_label = self._impl.findChild(QLabel, STATUS_LABEL_OBJECT_NAME)
+        if status_label is not None:
+            status_label.setText("Iterative solver defaults restored")
 
     # -- sidebar builder ----------------------------------------------------
 

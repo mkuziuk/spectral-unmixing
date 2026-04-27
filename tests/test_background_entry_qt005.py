@@ -47,6 +47,26 @@ class TestBackgroundEntryQT005(unittest.TestCase):
         self.assertIsNotNone(entry)
         self.assertEqual(entry.text(), "2500.0")
 
+    def test_default_background_model_and_exponential_parameters(self):
+        """Background model should start constant with exponential defaults ready."""
+        from PySide6.QtWidgets import QComboBox, QLineEdit
+        from app.gui_qt.main_window import (
+            BG_EXP_END_ENTRY_OBJECT_NAME,
+            BG_EXP_START_ENTRY_OBJECT_NAME,
+            BG_MODEL_COMBO_OBJECT_NAME,
+        )
+
+        model_combo = self.impl.findChild(QComboBox, BG_MODEL_COMBO_OBJECT_NAME)
+        exp_start = self.impl.findChild(QLineEdit, BG_EXP_START_ENTRY_OBJECT_NAME)
+        exp_end = self.impl.findChild(QLineEdit, BG_EXP_END_ENTRY_OBJECT_NAME)
+
+        self.assertIsNotNone(model_combo)
+        self.assertIsNotNone(exp_start)
+        self.assertIsNotNone(exp_end)
+        self.assertEqual(model_combo.currentText(), "constant")
+        self.assertEqual(exp_start.text(), "1.0")
+        self.assertEqual(exp_end.text(), "0.1")
+
     def test_default_getter_returns_2500_0(self):
         """get_background_value() should return 2500.0 at startup."""
         self.assertEqual(self.window.get_background_value(), 2500.0)
@@ -175,6 +195,65 @@ class TestBackgroundEntryQT005(unittest.TestCase):
         entry.editingFinished.emit()
         QTest.qWait(10)
         self.assertEqual(self.window.get_background_value(), 5000.0)
+
+    def test_exponential_model_shows_exp_entries_and_hides_constant_entry(self):
+        """Choosing exponential should reveal start/end controls and hide constant value."""
+        from PySide6.QtWidgets import QComboBox, QLineEdit
+        from app.gui_qt.main_window import (
+            BG_ENTRY_OBJECT_NAME,
+            BG_EXP_END_ENTRY_OBJECT_NAME,
+            BG_EXP_START_ENTRY_OBJECT_NAME,
+            BG_MODEL_COMBO_OBJECT_NAME,
+        )
+
+        self.impl.show()
+        QTest.qWait(10)
+
+        model_combo = self.impl.findChild(QComboBox, BG_MODEL_COMBO_OBJECT_NAME)
+        bg_entry = self.impl.findChild(QLineEdit, BG_ENTRY_OBJECT_NAME)
+        exp_start = self.impl.findChild(QLineEdit, BG_EXP_START_ENTRY_OBJECT_NAME)
+        exp_end = self.impl.findChild(QLineEdit, BG_EXP_END_ENTRY_OBJECT_NAME)
+
+        model_combo.setCurrentText("exponential")
+        QTest.qWait(10)
+
+        self.assertFalse(bg_entry.isVisible())
+        self.assertTrue(exp_start.isVisible())
+        self.assertTrue(exp_end.isVisible())
+
+    def test_exponential_snapshot_captures_background_parameters(self):
+        """Run snapshot should capture exponential background model parameters."""
+        from PySide6.QtWidgets import QComboBox, QLineEdit
+        from app.gui_qt.main_window import (
+            BG_EXP_END_ENTRY_OBJECT_NAME,
+            BG_EXP_START_ENTRY_OBJECT_NAME,
+            BG_MODEL_COMBO_OBJECT_NAME,
+        )
+
+        self.window.root_dir = "/tmp/root"
+        self.window.data_dir = "/tmp/data"
+        self.window.folder_info = {"wavelengths": [500, 600, 700]}
+        self.window.set_chromophores(["Hb"])
+
+        model_combo = self.impl.findChild(QComboBox, BG_MODEL_COMBO_OBJECT_NAME)
+        exp_start = self.impl.findChild(QLineEdit, BG_EXP_START_ENTRY_OBJECT_NAME)
+        exp_end = self.impl.findChild(QLineEdit, BG_EXP_END_ENTRY_OBJECT_NAME)
+
+        model_combo.setCurrentText("exponential")
+        exp_start.setText("1.0")
+        exp_end.setText("0.1")
+
+        snapshot = self.window._build_config_snapshot()
+
+        self.assertEqual(
+            snapshot["background_parameters"],
+            {
+                "model": "exponential",
+                "value": 2500.0,
+                "exp_start": 1.0,
+                "exp_end": 0.1,
+            },
+        )
 
 
 if __name__ == "__main__":

@@ -343,7 +343,12 @@ class TestQt003Toolbar(unittest.TestCase):
             "solver_label",
             "solver_combo",
             "background_label",
+            "bg_model_combo",
             "bg_entry",
+            "bg_exp_start_label",
+            "bg_exp_start_entry",
+            "bg_exp_end_label",
+            "bg_exp_end_entry",
             "run_btn",
             "save_btn",
             "progress_bar",
@@ -411,13 +416,19 @@ class TestQt003Toolbar(unittest.TestCase):
         """Fixed-scattering controls must start hidden until a fixed-scattering solver is selected."""
         from PySide6.QtTest import QTest
         from PySide6.QtWidgets import QToolBar
-        from app.gui_qt.main_window import SCATTERING_TOOLBAR_OBJECT_NAME
+        from app.gui_qt.main_window import (
+            ITERATIVE_TOOLBAR_OBJECT_NAME,
+            SCATTERING_TOOLBAR_OBJECT_NAME,
+        )
 
         self.impl.show()
         QTest.qWait(10)
         scattering_toolbar = self.impl.findChild(QToolBar, SCATTERING_TOOLBAR_OBJECT_NAME)
+        iterative_toolbar = self.impl.findChild(QToolBar, ITERATIVE_TOOLBAR_OBJECT_NAME)
         self.assertIsNotNone(scattering_toolbar)
+        self.assertIsNotNone(iterative_toolbar)
         self.assertFalse(scattering_toolbar.isVisible())
+        self.assertFalse(iterative_toolbar.isVisible())
 
     def test_mu_a_selection_shows_scattering_and_hides_background(self):
         """Choosing mu_a should show fixed-scattering controls and hide background."""
@@ -426,6 +437,8 @@ class TestQt003Toolbar(unittest.TestCase):
         from app.gui_qt.main_window import (
             BACKGROUND_LABEL_OBJECT_NAME,
             BG_ENTRY_OBJECT_NAME,
+            BG_MODEL_COMBO_OBJECT_NAME,
+            ITERATIVE_TOOLBAR_OBJECT_NAME,
             SCATTERING_TOOLBAR_OBJECT_NAME,
             SOLVER_COMBO_OBJECT_NAME,
         )
@@ -434,23 +447,29 @@ class TestQt003Toolbar(unittest.TestCase):
         QTest.qWait(10)
         solver_combo = self.impl.findChild(QComboBox, SOLVER_COMBO_OBJECT_NAME)
         background_label = self.impl.findChild(QLabel, BACKGROUND_LABEL_OBJECT_NAME)
+        bg_model_combo = self.impl.findChild(QComboBox, BG_MODEL_COMBO_OBJECT_NAME)
         bg_entry = self.impl.findChild(QLineEdit, BG_ENTRY_OBJECT_NAME)
         scattering_toolbar = self.impl.findChild(QToolBar, SCATTERING_TOOLBAR_OBJECT_NAME)
+        iterative_toolbar = self.impl.findChild(QToolBar, ITERATIVE_TOOLBAR_OBJECT_NAME)
 
         solver_combo.setCurrentText("mu_a")
         QTest.qWait(10)
 
         self.assertFalse(background_label.isVisible())
+        self.assertFalse(bg_model_combo.isVisible())
         self.assertFalse(bg_entry.isVisible())
         self.assertTrue(scattering_toolbar.isVisible())
+        self.assertFalse(iterative_toolbar.isVisible())
 
-    def test_iterative_selection_shows_scattering_and_hides_background(self):
-        """Choosing iterative should show fixed-scattering controls and hide background."""
+    def test_iterative_selection_shows_background_scattering_and_iterative_controls(self):
+        """Choosing iterative should show background, fixed-scattering, and iterative controls."""
         from PySide6.QtTest import QTest
         from PySide6.QtWidgets import QComboBox, QLineEdit, QLabel, QToolBar
         from app.gui_qt.main_window import (
             BACKGROUND_LABEL_OBJECT_NAME,
             BG_ENTRY_OBJECT_NAME,
+            BG_MODEL_COMBO_OBJECT_NAME,
+            ITERATIVE_TOOLBAR_OBJECT_NAME,
             SCATTERING_TOOLBAR_OBJECT_NAME,
             SOLVER_COMBO_OBJECT_NAME,
         )
@@ -459,15 +478,19 @@ class TestQt003Toolbar(unittest.TestCase):
         QTest.qWait(10)
         solver_combo = self.impl.findChild(QComboBox, SOLVER_COMBO_OBJECT_NAME)
         background_label = self.impl.findChild(QLabel, BACKGROUND_LABEL_OBJECT_NAME)
+        bg_model_combo = self.impl.findChild(QComboBox, BG_MODEL_COMBO_OBJECT_NAME)
         bg_entry = self.impl.findChild(QLineEdit, BG_ENTRY_OBJECT_NAME)
         scattering_toolbar = self.impl.findChild(QToolBar, SCATTERING_TOOLBAR_OBJECT_NAME)
+        iterative_toolbar = self.impl.findChild(QToolBar, ITERATIVE_TOOLBAR_OBJECT_NAME)
 
         solver_combo.setCurrentText("iterative")
         QTest.qWait(10)
 
-        self.assertFalse(background_label.isVisible())
-        self.assertFalse(bg_entry.isVisible())
+        self.assertTrue(background_label.isVisible())
+        self.assertTrue(bg_model_combo.isVisible())
+        self.assertTrue(bg_entry.isVisible())
         self.assertTrue(scattering_toolbar.isVisible())
+        self.assertTrue(iterative_toolbar.isVisible())
 
     def test_switching_back_from_mu_a_restores_background_controls(self):
         """Leaving mu_a should hide scattering controls and restore background."""
@@ -547,6 +570,11 @@ class TestQt003Toolbar(unittest.TestCase):
         """Iterative snapshot should include validated fixed-scattering parameters."""
         from PySide6.QtWidgets import QComboBox, QLineEdit
         from app.gui_qt.main_window import (
+            ITERATIVE_DAMPING_ENTRY_OBJECT_NAME,
+            ITERATIVE_INITIAL_CONC_ENTRY_OBJECT_NAME,
+            ITERATIVE_MAX_ITER_ENTRY_OBJECT_NAME,
+            ITERATIVE_TOL_REL_ENTRY_OBJECT_NAME,
+            ITERATIVE_TOL_RMSE_ENTRY_OBJECT_NAME,
             SCATTERING_ANISOTROPY_ENTRY_OBJECT_NAME,
             SCATTERING_LAMBDA0_ENTRY_OBJECT_NAME,
             SCATTERING_LIPOFUNDIN_ENTRY_OBJECT_NAME,
@@ -575,10 +603,31 @@ class TestQt003Toolbar(unittest.TestCase):
             self.assertIsNotNone(entry)
             entry.setText(value)
 
+        iterative_entry_values = {
+            ITERATIVE_MAX_ITER_ENTRY_OBJECT_NAME: "40",
+            ITERATIVE_TOL_REL_ENTRY_OBJECT_NAME: "1e-5",
+            ITERATIVE_TOL_RMSE_ENTRY_OBJECT_NAME: "1e-7",
+            ITERATIVE_DAMPING_ENTRY_OBJECT_NAME: "0.75",
+            ITERATIVE_INITIAL_CONC_ENTRY_OBJECT_NAME: "2e-4",
+        }
+        for object_name, value in iterative_entry_values.items():
+            entry = self.impl.findChild(QLineEdit, object_name)
+            self.assertIsNotNone(entry)
+            entry.setText(value)
+
         snapshot = self.window._build_config_snapshot()
 
         self.assertEqual(snapshot["solver_method"], "iterative")
-        self.assertFalse(snapshot["include_background"])
+        self.assertTrue(snapshot["include_background"])
+        self.assertEqual(
+            snapshot["background_parameters"],
+            {
+                "model": "constant",
+                "value": 2500.0,
+                "exp_start": 1.0,
+                "exp_end": 0.1,
+            },
+        )
         self.assertEqual(
             snapshot["scattering_parameters"],
             {
@@ -589,6 +638,94 @@ class TestQt003Toolbar(unittest.TestCase):
                 "anisotropy_g": 0.79,
             },
         )
+        self.assertEqual(
+            snapshot["iterative_parameters"],
+            {
+                "max_iter": 40,
+                "tol_rel": 1e-5,
+                "tol_rmse": 1e-7,
+                "damping": 0.75,
+                "initial_concentration": 2e-4,
+            },
+        )
+
+    def test_iterative_reset_restores_default_parameters(self):
+        """Reset button should restore all iterative solver controls to core defaults."""
+        from PySide6.QtWidgets import QLineEdit, QPushButton
+        from app.core import processing
+        from app.gui_qt.main_window import (
+            ITERATIVE_DAMPING_ENTRY_OBJECT_NAME,
+            ITERATIVE_INITIAL_CONC_ENTRY_OBJECT_NAME,
+            ITERATIVE_MAX_ITER_ENTRY_OBJECT_NAME,
+            ITERATIVE_RESET_BTN_OBJECT_NAME,
+            ITERATIVE_TOL_REL_ENTRY_OBJECT_NAME,
+            ITERATIVE_TOL_RMSE_ENTRY_OBJECT_NAME,
+        )
+
+        entry_names = {
+            "max_iter": ITERATIVE_MAX_ITER_ENTRY_OBJECT_NAME,
+            "tol_rel": ITERATIVE_TOL_REL_ENTRY_OBJECT_NAME,
+            "tol_rmse": ITERATIVE_TOL_RMSE_ENTRY_OBJECT_NAME,
+            "damping": ITERATIVE_DAMPING_ENTRY_OBJECT_NAME,
+            "initial_concentration": ITERATIVE_INITIAL_CONC_ENTRY_OBJECT_NAME,
+        }
+        custom_values = {
+            "max_iter": "99",
+            "tol_rel": "9e-4",
+            "tol_rmse": "9e-6",
+            "damping": "0.9",
+            "initial_concentration": "9e-4",
+        }
+
+        for key, object_name in entry_names.items():
+            entry = self.impl.findChild(QLineEdit, object_name)
+            self.assertIsNotNone(entry)
+            entry.setText(custom_values[key])
+
+        reset_btn = self.impl.findChild(QPushButton, ITERATIVE_RESET_BTN_OBJECT_NAME)
+        self.assertIsNotNone(reset_btn)
+        reset_btn.click()
+
+        defaults = processing.get_default_iterative_solver_parameters()
+        for key, object_name in entry_names.items():
+            entry = self.impl.findChild(QLineEdit, object_name)
+            self.assertEqual(entry.text(), str(defaults[key]))
+
+    def test_solver_specific_parameter_help_tooltips_exist(self):
+        """Solver-specific scattering and iterative parameters should have '?' tooltips."""
+        from PySide6.QtWidgets import QLabel
+        from app.gui_qt.main_window import (
+            ITERATIVE_DAMPING_LABEL_OBJECT_NAME,
+            ITERATIVE_INITIAL_CONC_LABEL_OBJECT_NAME,
+            ITERATIVE_MAX_ITER_LABEL_OBJECT_NAME,
+            ITERATIVE_TOL_REL_LABEL_OBJECT_NAME,
+            ITERATIVE_TOL_RMSE_LABEL_OBJECT_NAME,
+            SCATTERING_ANISOTROPY_LABEL_OBJECT_NAME,
+            SCATTERING_LAMBDA0_LABEL_OBJECT_NAME,
+            SCATTERING_LIPOFUNDIN_LABEL_OBJECT_NAME,
+            SCATTERING_MU_S_500_LABEL_OBJECT_NAME,
+            SCATTERING_POWER_LABEL_OBJECT_NAME,
+        )
+
+        parameter_label_names = [
+            SCATTERING_LAMBDA0_LABEL_OBJECT_NAME,
+            SCATTERING_MU_S_500_LABEL_OBJECT_NAME,
+            SCATTERING_POWER_LABEL_OBJECT_NAME,
+            SCATTERING_LIPOFUNDIN_LABEL_OBJECT_NAME,
+            SCATTERING_ANISOTROPY_LABEL_OBJECT_NAME,
+            ITERATIVE_MAX_ITER_LABEL_OBJECT_NAME,
+            ITERATIVE_TOL_REL_LABEL_OBJECT_NAME,
+            ITERATIVE_TOL_RMSE_LABEL_OBJECT_NAME,
+            ITERATIVE_DAMPING_LABEL_OBJECT_NAME,
+            ITERATIVE_INITIAL_CONC_LABEL_OBJECT_NAME,
+        ]
+
+        for label_name in parameter_label_names:
+            with self.subTest(label_name=label_name):
+                help_label = self.impl.findChild(QLabel, f"{label_name}_help")
+                self.assertIsNotNone(help_label)
+                self.assertEqual(help_label.text(), "?")
+                self.assertTrue(help_label.toolTip())
 
 
 # ---------------------------------------------------------------------------

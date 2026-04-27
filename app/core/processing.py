@@ -19,6 +19,24 @@ SCATTERING_POWER_B: float = 1.0
 SCATTERING_LIPOFUNDIN_FRACTION: float = 0.25
 SCATTERING_ANISOTROPY_G: float = 0.8
 
+# Background basis defaults used by the LS/NNLS overlap-matrix solvers.
+BACKGROUND_MODEL_CONSTANT: str = "constant"
+BACKGROUND_MODEL_EXPONENTIAL: str = "exponential"
+SUPPORTED_BACKGROUND_MODELS: tuple[str, ...] = (
+    BACKGROUND_MODEL_CONSTANT,
+    BACKGROUND_MODEL_EXPONENTIAL,
+)
+BACKGROUND_CONSTANT_VALUE: float = 2500.0
+BACKGROUND_EXP_START: float = 1.0
+BACKGROUND_EXP_END: float = 0.1
+
+# Iterative solver convergence defaults.
+ITERATIVE_MAX_ITER: int = 25
+ITERATIVE_TOL_REL: float = 1e-4
+ITERATIVE_TOL_RMSE: float = 1e-6
+ITERATIVE_DAMPING: float = 0.5
+ITERATIVE_INITIAL_CONCENTRATION: float = 1e-4
+
 
 def get_default_scattering_parameters() -> dict[str, float]:
     """Return the default fixed-scattering parameter set for fixed-scattering solvers."""
@@ -55,6 +73,141 @@ def validate_scattering_parameters(params: dict) -> dict[str, float]:
         raise ValueError("lipofundin_fraction must be >= 0.")
     if not (0 <= validated["anisotropy_g"] < 1):
         raise ValueError("anisotropy_g must satisfy 0 <= g < 1.")
+
+    return validated
+
+
+def get_default_background_parameters() -> dict[str, float | str]:
+    """Return the default background basis configuration."""
+    return {
+        "model": BACKGROUND_MODEL_CONSTANT,
+        "value": BACKGROUND_CONSTANT_VALUE,
+        "exp_start": BACKGROUND_EXP_START,
+        "exp_end": BACKGROUND_EXP_END,
+    }
+
+
+def validate_background_parameters(params: dict) -> dict[str, float | str]:
+    """Coerce and validate background basis parameters from UI or API input."""
+    model = str(params.get("model", BACKGROUND_MODEL_CONSTANT)).strip().lower()
+    if model not in SUPPORTED_BACKGROUND_MODELS:
+        raise ValueError(
+            f"Unsupported background model: {model!r}. "
+            f"Expected one of {SUPPORTED_BACKGROUND_MODELS}."
+        )
+
+    value = float(params.get("value", BACKGROUND_CONSTANT_VALUE))
+    exp_start = float(params.get("exp_start", BACKGROUND_EXP_START))
+    exp_end = float(params.get("exp_end", BACKGROUND_EXP_END))
+
+    for key, item in (
+        ("value", value),
+        ("exp_start", exp_start),
+        ("exp_end", exp_end),
+    ):
+        if not np.isfinite(item):
+            raise ValueError(f"{key} must be finite.")
+
+    if exp_start <= 0:
+        raise ValueError("exp_start must be > 0.")
+    if exp_end <= 0:
+        raise ValueError("exp_end must be > 0.")
+
+    return {
+        "model": model,
+        "value": value,
+        "exp_start": exp_start,
+        "exp_end": exp_end,
+    }
+
+
+def build_background_profile(
+    led_wavelengths: list,
+    model: str = BACKGROUND_MODEL_CONSTANT,
+    value: float = BACKGROUND_CONSTANT_VALUE,
+    exp_start: float = BACKGROUND_EXP_START,
+    exp_end: float = BACKGROUND_EXP_END,
+) -> np.ndarray:
+    """Return one background basis value per LED band."""
+    params = validate_background_parameters({
+        "model": model,
+        "value": value,
+        "exp_start": exp_start,
+        "exp_end": exp_end,
+    })
+    wavelengths = np.asarray(led_wavelengths, dtype=float).reshape(-1)
+
+    if params["model"] == BACKGROUND_MODEL_CONSTANT:
+        return np.full(wavelengths.shape, float(params["value"]), dtype=float)
+
+    if wavelengths.size == 0:
+        return np.asarray([], dtype=float)
+    wl_min = float(np.nanmin(wavelengths))
+    wl_max = float(np.nanmax(wavelengths))
+    if not np.isfinite(wl_min) or not np.isfinite(wl_max):
+        raise ValueError("led_wavelengths must be finite.")
+    if wl_max == wl_min:
+        return np.full(wavelengths.shape, float(params["exp_start"]), dtype=float)
+
+    t = (wavelengths - wl_min) / (wl_max - wl_min)
+    profile = float(params["exp_start"]) * (
+        float(params["exp_end"]) / float(params["exp_start"])
+    ) ** t
+    return _validate_finite("background_profile", profile)
+
+
+def get_default_iterative_solver_parameters() -> dict[str, float | int]:
+    """Return the default convergence parameters for the iterative solver."""
+    return {
+        "max_iter": ITERATIVE_MAX_ITER,
+        "tol_rel": ITERATIVE_TOL_REL,
+        "tol_rmse": ITERATIVE_TOL_RMSE,
+        "damping": ITERATIVE_DAMPING,
+        "initial_concentration": ITERATIVE_INITIAL_CONCENTRATION,
+    }
+
+
+def validate_iterative_solver_parameters(params: dict) -> dict[str, float | int]:
+    """Coerce and validate iterative-solver controls from UI or API input."""
+    required_keys = (
+        "max_iter",
+        "tol_rel",
+        "tol_rmse",
+        "damping",
+        "initial_concentration",
+    )
+
+    missing = [key for key in required_keys if key not in params]
+    if missing:
+        raise ValueError(f"Missing iterative solver parameters: {', '.join(missing)}")
+
+    max_iter_raw = float(params["max_iter"])
+    if not np.isfinite(max_iter_raw) or not max_iter_raw.is_integer():
+        raise ValueError("max_iter must be an integer.")
+    max_iter = int(max_iter_raw)
+
+    validated = {
+        "max_iter": max_iter,
+        "tol_rel": float(params["tol_rel"]),
+        "tol_rmse": float(params["tol_rmse"]),
+        "damping": float(params["damping"]),
+        "initial_concentration": float(params["initial_concentration"]),
+    }
+
+    for key, value in validated.items():
+        if not np.isfinite(float(value)):
+            raise ValueError(f"{key} must be finite.")
+
+    if validated["max_iter"] < 1:
+        raise ValueError("max_iter must be >= 1.")
+    if validated["tol_rel"] <= 0:
+        raise ValueError("tol_rel must be > 0.")
+    if validated["tol_rmse"] < 0:
+        raise ValueError("tol_rmse must be >= 0.")
+    if not (0.0 < validated["damping"] <= 1.0):
+        raise ValueError("damping must satisfy 0 < damping <= 1.")
+    if validated["initial_concentration"] < 0:
+        raise ValueError("initial_concentration must be >= 0.")
 
     return validated
 
@@ -216,7 +369,10 @@ def build_overlap_matrix(
     led_wavelengths: list,
     chromophore_names: list = None,
     include_background: bool = True,
-    background_value: float = 2500.0,
+    background_value: float = BACKGROUND_CONSTANT_VALUE,
+    background_model: str = BACKGROUND_MODEL_CONSTANT,
+    background_exp_start: float = BACKGROUND_EXP_START,
+    background_exp_end: float = BACKGROUND_EXP_END,
 ) -> tuple:
     """
     Build the overlap matrix A ∈ R^{N_LED × N_components}.
@@ -228,7 +384,7 @@ def build_overlap_matrix(
         4. Compute overlap extinction: eps_k^n = ∫ phi_n(λ) * eps_k(λ) dλ
         5. Compute overlap pathlength: l^n = ∫ phi_n(λ) * l(λ) dλ
         6. A[n,k] = l^n * eps_k^n
-        7. Append background column (configurable, default 2500.0).
+        7. Append background column (constant or exponential basis).
 
     Parameters
     ----------
@@ -240,12 +396,17 @@ def build_overlap_matrix(
     include_background : bool, optional
         Whether to append a background column (default True)
     background_value : float, optional
-        Value for the background column (default 2500.0)
+        Value for the constant background column (default 2500.0)
+    background_model : str, optional
+        "constant" or "exponential" background basis.
+    background_exp_start, background_exp_end : float, optional
+        Exponential background values at the shortest and longest LED
+        wavelengths respectively.
 
     Returns
     -------
     A : np.ndarray, shape (N_LED, N_components)
-        Columns: [chromophores, optional background with value `background_value`]
+        Columns: [chromophores, optional background basis]
     chromophore_names : list[str]
         Column labels (without background)
     """
@@ -275,6 +436,15 @@ def build_overlap_matrix(
     n_leds = len(led_wavelengths)
     n_chrom = len(chromophore_names)
     A = np.zeros((n_leds, n_chrom + (1 if include_background else 0)))
+    background_profile = None
+    if include_background:
+        background_profile = build_background_profile(
+            led_wavelengths,
+            model=background_model,
+            value=background_value,
+            exp_start=background_exp_start,
+            exp_end=background_exp_end,
+        )
 
     for i, phi in enumerate(led_profiles):
         # Overlap pathlength: l^n = ∫ phi_n(λ) * l(λ) dλ
@@ -287,7 +457,7 @@ def build_overlap_matrix(
 
         # Background column
         if include_background:
-            A[i, -1] = background_value
+            A[i, -1] = background_profile[i]
 
     return A, chromophore_names
 
@@ -445,19 +615,30 @@ def solve_unmixing_iterative(
     led_wavelengths: list,
     chromophore_names: list | None = None,
     include_background: bool = False,
-    background_value: float = 2500.0,
-    max_iter: int = 25,
-    tol_rel: float = 1e-4,
-    tol_rmse: float = 1e-6,
-    damping: float = 0.5,
-    initial_concentration: float = 1e-4,
+    background_value: float = BACKGROUND_CONSTANT_VALUE,
+    background_model: str = BACKGROUND_MODEL_CONSTANT,
+    background_exp_start: float = BACKGROUND_EXP_START,
+    background_exp_end: float = BACKGROUND_EXP_END,
+    max_iter: int = ITERATIVE_MAX_ITER,
+    tol_rel: float = ITERATIVE_TOL_REL,
+    tol_rmse: float = ITERATIVE_TOL_RMSE,
+    damping: float = ITERATIVE_DAMPING,
+    initial_concentration: float = ITERATIVE_INITIAL_CONCENTRATION,
     scattering_parameters: dict | None = None,
 ) -> tuple:
     """Iterative overlap-matrix unmixing with a diffusion-inspired pathlength."""
-    if max_iter < 1:
-        raise ValueError("max_iter must be >= 1.")
-    if not (0.0 < damping <= 1.0):
-        raise ValueError("damping must satisfy 0 < damping <= 1.")
+    iterative_params = validate_iterative_solver_parameters({
+        "max_iter": max_iter,
+        "tol_rel": tol_rel,
+        "tol_rmse": tol_rmse,
+        "damping": damping,
+        "initial_concentration": initial_concentration,
+    })
+    max_iter = int(iterative_params["max_iter"])
+    tol_rel = float(iterative_params["tol_rel"])
+    tol_rmse = float(iterative_params["tol_rmse"])
+    damping = float(iterative_params["damping"])
+    initial_concentration = float(iterative_params["initial_concentration"])
 
     common_wl = np.asarray(led_emission_wl, dtype=float)
     chrom_names = (
@@ -474,6 +655,12 @@ def solve_unmixing_iterative(
     if scattering_parameters is not None:
         params.update(scattering_parameters)
     params = validate_scattering_parameters(params)
+    background_params = validate_background_parameters({
+        "model": background_model,
+        "value": background_value,
+        "exp_start": background_exp_start,
+        "exp_end": background_exp_end,
+    })
 
     H, W, _ = od_cube.shape
     n_chrom = len(chrom_names)
@@ -511,7 +698,10 @@ def solve_unmixing_iterative(
                 led_wavelengths=led_wavelengths,
                 chromophore_names=chrom_names,
                 include_background=include_background,
-                background_value=background_value,
+                background_value=background_params["value"],
+                background_model=background_params["model"],
+                background_exp_start=background_params["exp_start"],
+                background_exp_end=background_params["exp_end"],
             )
             A_iter = _validate_finite("overlap_matrix", A_iter)
             concentrations, rmse_map, fitted_od = _solve_unmixing_nnls(od_cube, A_iter)
@@ -569,6 +759,8 @@ def solve_unmixing_iterative(
     solver_info = {
         "method": "iterative",
         "base_method": "nnls",
+        "include_background": bool(include_background),
+        "background_parameters": dict(background_params),
         "stop_reason": stop_reason,
         "fallback_used": fallback_used,
         "fallback_reason": fallback_reason,
@@ -576,6 +768,7 @@ def solve_unmixing_iterative(
         "n_iter": len(history),
         "max_iter": int(max_iter),
         "history": history,
+        "iterative_parameters": dict(iterative_params),
         "stop_thresholds": {
             "tol_rel": float(tol_rel),
             "tol_rmse": float(tol_rmse),
