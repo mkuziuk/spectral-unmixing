@@ -29,6 +29,140 @@ class TestFixedScatteringSolver(unittest.TestCase):
         with self.assertRaises(ValueError):
             processing.validate_scattering_parameters(params)
 
+    def test_build_background_profile_exponential_decreases_by_wavelength(self):
+        profile = processing.build_background_profile(
+            [500, 600, 700],
+            model="exponential",
+            exp_start=1.0,
+            exp_end=0.1,
+        )
+
+        self.assertTrue(np.allclose(profile[[0, -1]], [1.0, 0.1]))
+        self.assertGreater(profile[0], profile[1])
+        self.assertGreater(profile[1], profile[2])
+
+    def test_build_background_profile_shape_and_offset_apply_baseline(self):
+        profile = processing.build_background_profile(
+            [500, 600, 700],
+            model="exponential",
+            exp_start=1.0,
+            exp_end=0.1,
+            exp_shape=2.0,
+            exp_offset=0.05,
+        )
+
+        self.assertTrue(np.allclose(profile[[0, -1]], [1.05, 0.15]))
+        self.assertGreater(profile[1], 0.15)
+        self.assertLess(profile[1], 1.05)
+
+    def test_build_background_profile_allows_zero_exponential_end(self):
+        profile = processing.build_background_profile(
+            [500, 600, 700],
+            model="exponential",
+            exp_start=1.0,
+            exp_end=0.0,
+        )
+
+        self.assertTrue(np.all(np.isfinite(profile)))
+        self.assertEqual(float(profile[0]), 1.0)
+        self.assertEqual(float(profile[-1]), 0.0)
+
+    def test_validate_background_parameters_rejects_invalid_exponential_values(self):
+        params = processing.get_default_background_parameters()
+        params.update({"model": "exponential", "exp_end": 0.0})
+
+        validated = processing.validate_background_parameters(params)
+        self.assertEqual(validated["exp_end"], 0.0)
+
+        params = processing.get_default_background_parameters()
+        params.update({"model": "exponential", "exp_end": -0.1})
+
+        with self.assertRaises(ValueError):
+            processing.validate_background_parameters(params)
+
+        params = processing.get_default_background_parameters()
+        params.update({"model": "exponential", "exp_shape": 0.0})
+
+        with self.assertRaises(ValueError):
+            processing.validate_background_parameters(params)
+
+        params = processing.get_default_background_parameters()
+        params.update({"model": "exponential", "exp_offset": 0.5})
+
+        validated = processing.validate_background_parameters(params)
+        self.assertEqual(validated["exp_offset"], 0.5)
+
+    def test_build_overlap_matrix_uses_exponential_background_column(self):
+        common_wl = np.array([500.0, 600.0, 700.0])
+        led_emission = {
+            500: np.array([1.0, 0.0, 0.0]),
+            600: np.array([0.0, 1.0, 0.0]),
+            700: np.array([0.0, 0.0, 1.0]),
+        }
+
+        A, chrom_names = processing.build_overlap_matrix(
+            common_wl,
+            led_emission,
+            {},
+            common_wl,
+            np.ones_like(common_wl),
+            led_wavelengths=[500, 600, 700],
+            chromophore_names=[],
+            include_background=True,
+            background_model="exponential",
+            background_exp_start=1.0,
+            background_exp_end=0.1,
+        )
+
+        expected = processing.build_background_profile(
+            [500, 600, 700],
+            model="exponential",
+            exp_start=1.0,
+            exp_end=0.1,
+        )
+        self.assertEqual(chrom_names, [])
+        self.assertTrue(np.allclose(A[:, 0], expected))
+
+    def test_validate_iterative_solver_parameters_coerces_valid_values(self):
+        params = processing.get_default_iterative_solver_parameters()
+        params.update({
+            "max_iter": "40",
+            "tol_rel": "1e-5",
+            "tol_rmse": "1e-7",
+            "damping": "0.75",
+            "initial_concentration": "2e-4",
+        })
+
+        validated = processing.validate_iterative_solver_parameters(params)
+
+        self.assertEqual(
+            validated,
+            {
+                "max_iter": 40,
+                "tol_rel": 1e-5,
+                "tol_rmse": 1e-7,
+                "damping": 0.75,
+                "initial_concentration": 2e-4,
+            },
+        )
+
+    def test_validate_iterative_solver_parameters_rejects_invalid_values(self):
+        params = processing.get_default_iterative_solver_parameters()
+
+        invalid_cases = [
+            ("max_iter", "0"),
+            ("tol_rel", "0"),
+            ("tol_rmse", "-1e-6"),
+            ("damping", "0"),
+            ("initial_concentration", "-1e-4"),
+        ]
+        for key, value in invalid_cases:
+            with self.subTest(key=key):
+                candidate = dict(params)
+                candidate[key] = value
+                with self.assertRaises(ValueError):
+                    processing.validate_iterative_solver_parameters(candidate)
+
     def test_build_absorption_matrix_band_averages_chromophore_spectra(self):
         led_emission_wl = np.array([500.0, 600.0])
         led_emission = {
@@ -246,6 +380,54 @@ class TestFixedScatteringSolver(unittest.TestCase):
         self.assertTrue(np.allclose(fitted_od[0, 0, :], od, atol=1e-8))
         self.assertLess(float(rmse_map[0, 0]), 1e-8)
         self.assertEqual(solver_info["scattering_parameters"], params)
+        self.assertEqual(solver_info["iterative_parameters"]["max_iter"], 50)
+        self.assertEqual(solver_info["iterative_parameters"]["tol_rel"], 1e-8)
+        self.assertEqual(solver_info["iterative_parameters"]["tol_rmse"], 1e-12)
+
+    def test_iterative_solver_accepts_background_channel(self):
+        common_wl = np.array([500.0, 600.0, 700.0])
+        led_emission = {
+            500: np.array([1.0, 0.0, 0.0]),
+            600: np.array([0.0, 1.0, 0.0]),
+            700: np.array([0.0, 0.0, 1.0]),
+        }
+        chromophore_spectra = {
+            "HbO2": (common_wl, np.array([1.5, 0.7, 0.5])),
+        }
+        static_A, chrom_names = processing.build_overlap_matrix(
+            common_wl,
+            led_emission,
+            chromophore_spectra,
+            common_wl,
+            np.ones_like(common_wl),
+            led_wavelengths=[500, 600, 700],
+            chromophore_names=["HbO2"],
+            include_background=True,
+            background_model="exponential",
+            background_exp_start=1.0,
+            background_exp_end=0.1,
+        )
+        od_cube = np.array([[[0.1, 0.08, 0.04]]])
+
+        concentrations, _rmse_map, _fitted_od, solver_info = processing.solve_unmixing_iterative(
+            od_cube,
+            static_A,
+            common_wl,
+            led_emission,
+            chromophore_spectra,
+            led_wavelengths=[500, 600, 700],
+            chromophore_names=chrom_names,
+            include_background=True,
+            background_model="exponential",
+            background_exp_start=1.0,
+            background_exp_end=0.1,
+            max_iter=2,
+        )
+
+        self.assertEqual(concentrations.shape[-1], 2)
+        self.assertEqual(solver_info["A_used"].shape[1], 2)
+        self.assertTrue(solver_info["include_background"])
+        self.assertEqual(solver_info["background_parameters"]["model"], "exponential")
 
     def test_iterative_solver_returns_best_rmse_iterate(self):
         od_cube = np.zeros((1, 1, 1), dtype=float)
