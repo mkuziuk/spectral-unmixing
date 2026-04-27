@@ -56,6 +56,8 @@ class TestBackgroundEntryQT005(unittest.TestCase):
             BG_EXP_SHAPE_ENTRY_OBJECT_NAME,
             BG_EXP_START_ENTRY_OBJECT_NAME,
             BG_MODEL_COMBO_OBJECT_NAME,
+            BG_SLOPE_END_ENTRY_OBJECT_NAME,
+            BG_SLOPE_START_ENTRY_OBJECT_NAME,
         )
 
         model_combo = self.impl.findChild(QComboBox, BG_MODEL_COMBO_OBJECT_NAME)
@@ -63,17 +65,23 @@ class TestBackgroundEntryQT005(unittest.TestCase):
         exp_end = self.impl.findChild(QLineEdit, BG_EXP_END_ENTRY_OBJECT_NAME)
         exp_shape = self.impl.findChild(QLineEdit, BG_EXP_SHAPE_ENTRY_OBJECT_NAME)
         exp_offset = self.impl.findChild(QLineEdit, BG_EXP_OFFSET_ENTRY_OBJECT_NAME)
+        slope_start = self.impl.findChild(QLineEdit, BG_SLOPE_START_ENTRY_OBJECT_NAME)
+        slope_end = self.impl.findChild(QLineEdit, BG_SLOPE_END_ENTRY_OBJECT_NAME)
 
         self.assertIsNotNone(model_combo)
         self.assertIsNotNone(exp_start)
         self.assertIsNotNone(exp_end)
         self.assertIsNotNone(exp_shape)
         self.assertIsNotNone(exp_offset)
+        self.assertIsNotNone(slope_start)
+        self.assertIsNotNone(slope_end)
         self.assertEqual(model_combo.currentText(), "constant")
         self.assertEqual(exp_start.text(), "1.0")
         self.assertEqual(exp_end.text(), "0.1")
         self.assertEqual(exp_shape.text(), "1.0")
         self.assertEqual(exp_offset.text(), "0.0")
+        self.assertEqual(slope_start.text(), "1.0")
+        self.assertEqual(slope_end.text(), "0.1")
 
     def test_default_getter_returns_2500_0(self):
         """get_background_value() should return 2500.0 at startup."""
@@ -214,6 +222,8 @@ class TestBackgroundEntryQT005(unittest.TestCase):
             BG_EXP_SHAPE_ENTRY_OBJECT_NAME,
             BG_EXP_START_ENTRY_OBJECT_NAME,
             BG_MODEL_COMBO_OBJECT_NAME,
+            BG_SLOPE_END_ENTRY_OBJECT_NAME,
+            BG_SLOPE_START_ENTRY_OBJECT_NAME,
         )
 
         self.impl.show()
@@ -225,6 +235,8 @@ class TestBackgroundEntryQT005(unittest.TestCase):
         exp_end = self.impl.findChild(QLineEdit, BG_EXP_END_ENTRY_OBJECT_NAME)
         exp_shape = self.impl.findChild(QLineEdit, BG_EXP_SHAPE_ENTRY_OBJECT_NAME)
         exp_offset = self.impl.findChild(QLineEdit, BG_EXP_OFFSET_ENTRY_OBJECT_NAME)
+        slope_start = self.impl.findChild(QLineEdit, BG_SLOPE_START_ENTRY_OBJECT_NAME)
+        slope_end = self.impl.findChild(QLineEdit, BG_SLOPE_END_ENTRY_OBJECT_NAME)
 
         model_combo.setCurrentText("exponential")
         QTest.qWait(10)
@@ -234,6 +246,39 @@ class TestBackgroundEntryQT005(unittest.TestCase):
         self.assertTrue(exp_end.isVisible())
         self.assertTrue(exp_shape.isVisible())
         self.assertTrue(exp_offset.isVisible())
+        self.assertFalse(slope_start.isVisible())
+        self.assertFalse(slope_end.isVisible())
+
+    def test_slope_model_shows_slope_entries_and_hides_other_background_entries(self):
+        """Choosing slope should reveal slope start/end controls only."""
+        from PySide6.QtWidgets import QComboBox, QLineEdit
+        from app.gui_qt.main_window import (
+            BG_ENTRY_OBJECT_NAME,
+            BG_EXP_END_ENTRY_OBJECT_NAME,
+            BG_EXP_START_ENTRY_OBJECT_NAME,
+            BG_MODEL_COMBO_OBJECT_NAME,
+            BG_SLOPE_END_ENTRY_OBJECT_NAME,
+            BG_SLOPE_START_ENTRY_OBJECT_NAME,
+        )
+
+        self.impl.show()
+        QTest.qWait(10)
+
+        model_combo = self.impl.findChild(QComboBox, BG_MODEL_COMBO_OBJECT_NAME)
+        bg_entry = self.impl.findChild(QLineEdit, BG_ENTRY_OBJECT_NAME)
+        exp_start = self.impl.findChild(QLineEdit, BG_EXP_START_ENTRY_OBJECT_NAME)
+        exp_end = self.impl.findChild(QLineEdit, BG_EXP_END_ENTRY_OBJECT_NAME)
+        slope_start = self.impl.findChild(QLineEdit, BG_SLOPE_START_ENTRY_OBJECT_NAME)
+        slope_end = self.impl.findChild(QLineEdit, BG_SLOPE_END_ENTRY_OBJECT_NAME)
+
+        model_combo.setCurrentText("slope")
+        QTest.qWait(10)
+
+        self.assertFalse(bg_entry.isVisible())
+        self.assertFalse(exp_start.isVisible())
+        self.assertFalse(exp_end.isVisible())
+        self.assertTrue(slope_start.isVisible())
+        self.assertTrue(slope_end.isVisible())
 
     def test_exponential_snapshot_captures_background_parameters(self):
         """Run snapshot should capture exponential background model parameters."""
@@ -274,8 +319,38 @@ class TestBackgroundEntryQT005(unittest.TestCase):
                 "exp_end": 0.1,
                 "exp_shape": 1.5,
                 "exp_offset": 0.02,
+                "slope_start": 1.0,
+                "slope_end": 0.1,
             },
         )
+
+    def test_slope_snapshot_captures_background_parameters(self):
+        """Run snapshot should capture slope background model parameters."""
+        from PySide6.QtWidgets import QComboBox, QLineEdit
+        from app.gui_qt.main_window import (
+            BG_MODEL_COMBO_OBJECT_NAME,
+            BG_SLOPE_END_ENTRY_OBJECT_NAME,
+            BG_SLOPE_START_ENTRY_OBJECT_NAME,
+        )
+
+        self.window.root_dir = "/tmp/root"
+        self.window.data_dir = "/tmp/data"
+        self.window.folder_info = {"wavelengths": [500, 600, 700]}
+        self.window.set_chromophores(["Hb"])
+
+        model_combo = self.impl.findChild(QComboBox, BG_MODEL_COMBO_OBJECT_NAME)
+        slope_start = self.impl.findChild(QLineEdit, BG_SLOPE_START_ENTRY_OBJECT_NAME)
+        slope_end = self.impl.findChild(QLineEdit, BG_SLOPE_END_ENTRY_OBJECT_NAME)
+
+        model_combo.setCurrentText("slope")
+        slope_start.setText("1.2")
+        slope_end.setText("0.3")
+
+        snapshot = self.window._build_config_snapshot()
+
+        self.assertEqual(snapshot["background_parameters"]["model"], "slope")
+        self.assertEqual(snapshot["background_parameters"]["slope_start"], 1.2)
+        self.assertEqual(snapshot["background_parameters"]["slope_end"], 0.3)
 
     def test_background_parameter_help_tooltips_exist(self):
         """Background controls should have '?' help markers with tooltips."""
@@ -288,6 +363,8 @@ class TestBackgroundEntryQT005(unittest.TestCase):
             BG_EXP_SHAPE_LABEL_OBJECT_NAME,
             BG_EXP_START_LABEL_OBJECT_NAME,
             BG_MODEL_COMBO_OBJECT_NAME,
+            BG_SLOPE_END_LABEL_OBJECT_NAME,
+            BG_SLOPE_START_LABEL_OBJECT_NAME,
         )
 
         names = [
@@ -298,6 +375,8 @@ class TestBackgroundEntryQT005(unittest.TestCase):
             BG_EXP_END_LABEL_OBJECT_NAME,
             BG_EXP_SHAPE_LABEL_OBJECT_NAME,
             BG_EXP_OFFSET_LABEL_OBJECT_NAME,
+            BG_SLOPE_START_LABEL_OBJECT_NAME,
+            BG_SLOPE_END_LABEL_OBJECT_NAME,
         ]
         for object_name in names:
             with self.subTest(object_name=object_name):

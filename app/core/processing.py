@@ -22,15 +22,19 @@ SCATTERING_ANISOTROPY_G: float = 0.8
 # Background basis defaults used by the LS/NNLS overlap-matrix solvers.
 BACKGROUND_MODEL_CONSTANT: str = "constant"
 BACKGROUND_MODEL_EXPONENTIAL: str = "exponential"
+BACKGROUND_MODEL_SLOPE: str = "slope"
 SUPPORTED_BACKGROUND_MODELS: tuple[str, ...] = (
     BACKGROUND_MODEL_CONSTANT,
     BACKGROUND_MODEL_EXPONENTIAL,
+    BACKGROUND_MODEL_SLOPE,
 )
 BACKGROUND_CONSTANT_VALUE: float = 2500.0
 BACKGROUND_EXP_START: float = 1.0
 BACKGROUND_EXP_END: float = 0.1
 BACKGROUND_EXP_SHAPE: float = 1.0
 BACKGROUND_EXP_OFFSET: float = 0.0
+BACKGROUND_SLOPE_START: float = 1.0
+BACKGROUND_SLOPE_END: float = 0.1
 
 # Iterative solver convergence defaults.
 ITERATIVE_MAX_ITER: int = 25
@@ -88,6 +92,8 @@ def get_default_background_parameters() -> dict[str, float | str]:
         "exp_end": BACKGROUND_EXP_END,
         "exp_shape": BACKGROUND_EXP_SHAPE,
         "exp_offset": BACKGROUND_EXP_OFFSET,
+        "slope_start": BACKGROUND_SLOPE_START,
+        "slope_end": BACKGROUND_SLOPE_END,
     }
 
 
@@ -105,6 +111,8 @@ def validate_background_parameters(params: dict) -> dict[str, float | str]:
     exp_end = float(params.get("exp_end", BACKGROUND_EXP_END))
     exp_shape = float(params.get("exp_shape", BACKGROUND_EXP_SHAPE))
     exp_offset = float(params.get("exp_offset", BACKGROUND_EXP_OFFSET))
+    slope_start = float(params.get("slope_start", BACKGROUND_SLOPE_START))
+    slope_end = float(params.get("slope_end", BACKGROUND_SLOPE_END))
 
     for key, item in (
         ("value", value),
@@ -112,6 +120,8 @@ def validate_background_parameters(params: dict) -> dict[str, float | str]:
         ("exp_end", exp_end),
         ("exp_shape", exp_shape),
         ("exp_offset", exp_offset),
+        ("slope_start", slope_start),
+        ("slope_end", slope_end),
     ):
         if not np.isfinite(item):
             raise ValueError(f"{key} must be finite.")
@@ -130,6 +140,8 @@ def validate_background_parameters(params: dict) -> dict[str, float | str]:
         "exp_end": exp_end,
         "exp_shape": exp_shape,
         "exp_offset": exp_offset,
+        "slope_start": slope_start,
+        "slope_end": slope_end,
     }
 
 
@@ -141,6 +153,8 @@ def build_background_profile(
     exp_end: float = BACKGROUND_EXP_END,
     exp_shape: float = BACKGROUND_EXP_SHAPE,
     exp_offset: float = BACKGROUND_EXP_OFFSET,
+    slope_start: float = BACKGROUND_SLOPE_START,
+    slope_end: float = BACKGROUND_SLOPE_END,
 ) -> np.ndarray:
     """Return one background basis value per LED band."""
     params = validate_background_parameters({
@@ -150,6 +164,8 @@ def build_background_profile(
         "exp_end": exp_end,
         "exp_shape": exp_shape,
         "exp_offset": exp_offset,
+        "slope_start": slope_start,
+        "slope_end": slope_end,
     })
     wavelengths = np.asarray(led_wavelengths, dtype=float).reshape(-1)
 
@@ -163,9 +179,17 @@ def build_background_profile(
     if not np.isfinite(wl_min) or not np.isfinite(wl_max):
         raise ValueError("led_wavelengths must be finite.")
     if wl_max == wl_min:
+        if params["model"] == BACKGROUND_MODEL_SLOPE:
+            return np.full(wavelengths.shape, float(params["slope_start"]), dtype=float)
         return np.full(wavelengths.shape, float(params["exp_start"]), dtype=float)
 
     t = (wavelengths - wl_min) / (wl_max - wl_min)
+    if params["model"] == BACKGROUND_MODEL_SLOPE:
+        profile = float(params["slope_start"]) + (
+            float(params["slope_end"]) - float(params["slope_start"])
+        ) * t
+        return _validate_finite("background_profile", profile)
+
     offset = float(params["exp_offset"])
     exp_start_value = float(params["exp_start"])
     exp_end_value = float(params["exp_end"])
@@ -397,6 +421,8 @@ def build_overlap_matrix(
     background_exp_end: float = BACKGROUND_EXP_END,
     background_exp_shape: float = BACKGROUND_EXP_SHAPE,
     background_exp_offset: float = BACKGROUND_EXP_OFFSET,
+    background_slope_start: float = BACKGROUND_SLOPE_START,
+    background_slope_end: float = BACKGROUND_SLOPE_END,
 ) -> tuple:
     """
     Build the overlap matrix A ∈ R^{N_LED × N_components}.
@@ -408,7 +434,7 @@ def build_overlap_matrix(
         4. Compute overlap extinction: eps_k^n = ∫ phi_n(λ) * eps_k(λ) dλ
         5. Compute overlap pathlength: l^n = ∫ phi_n(λ) * l(λ) dλ
         6. A[n,k] = l^n * eps_k^n
-        7. Append background column (constant or exponential basis).
+        7. Append background column (constant, exponential, or slope basis).
 
     Parameters
     ----------
@@ -422,7 +448,7 @@ def build_overlap_matrix(
     background_value : float, optional
         Value for the constant background column (default 2500.0)
     background_model : str, optional
-        "constant" or "exponential" background basis.
+        "constant", "exponential", or "slope" background basis.
     background_exp_start, background_exp_end : float, optional
         Exponential background values at the shortest and longest LED
         wavelengths respectively.
@@ -431,6 +457,9 @@ def build_overlap_matrix(
         1 make it happen earlier.
     background_exp_offset : float, optional
         Additive baseline/floor for the exponential background.
+    background_slope_start, background_slope_end : float, optional
+        Linear slope background values at the shortest and longest LED
+        wavelengths respectively.
 
     Returns
     -------
@@ -475,6 +504,8 @@ def build_overlap_matrix(
             exp_end=background_exp_end,
             exp_shape=background_exp_shape,
             exp_offset=background_exp_offset,
+            slope_start=background_slope_start,
+            slope_end=background_slope_end,
         )
 
     for i, phi in enumerate(led_profiles):
@@ -652,6 +683,8 @@ def solve_unmixing_iterative(
     background_exp_end: float = BACKGROUND_EXP_END,
     background_exp_shape: float = BACKGROUND_EXP_SHAPE,
     background_exp_offset: float = BACKGROUND_EXP_OFFSET,
+    background_slope_start: float = BACKGROUND_SLOPE_START,
+    background_slope_end: float = BACKGROUND_SLOPE_END,
     max_iter: int = ITERATIVE_MAX_ITER,
     tol_rel: float = ITERATIVE_TOL_REL,
     tol_rmse: float = ITERATIVE_TOL_RMSE,
@@ -695,6 +728,8 @@ def solve_unmixing_iterative(
         "exp_end": background_exp_end,
         "exp_shape": background_exp_shape,
         "exp_offset": background_exp_offset,
+        "slope_start": background_slope_start,
+        "slope_end": background_slope_end,
     })
 
     H, W, _ = od_cube.shape
@@ -739,6 +774,8 @@ def solve_unmixing_iterative(
                 background_exp_end=background_params["exp_end"],
                 background_exp_shape=background_params["exp_shape"],
                 background_exp_offset=background_params["exp_offset"],
+                background_slope_start=background_params["slope_start"],
+                background_slope_end=background_params["slope_end"],
             )
             A_iter = _validate_finite("overlap_matrix", A_iter)
             concentrations, rmse_map, fitted_od = _solve_unmixing_nnls(od_cube, A_iter)

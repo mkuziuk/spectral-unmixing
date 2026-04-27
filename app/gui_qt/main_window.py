@@ -64,6 +64,10 @@ BG_EXP_SHAPE_LABEL_OBJECT_NAME: str = "bg_exp_shape_label"
 BG_EXP_SHAPE_ENTRY_OBJECT_NAME: str = "bg_exp_shape_entry"
 BG_EXP_OFFSET_LABEL_OBJECT_NAME: str = "bg_exp_offset_label"
 BG_EXP_OFFSET_ENTRY_OBJECT_NAME: str = "bg_exp_offset_entry"
+BG_SLOPE_START_LABEL_OBJECT_NAME: str = "bg_slope_start_label"
+BG_SLOPE_START_ENTRY_OBJECT_NAME: str = "bg_slope_start_entry"
+BG_SLOPE_END_LABEL_OBJECT_NAME: str = "bg_slope_end_label"
+BG_SLOPE_END_ENTRY_OBJECT_NAME: str = "bg_slope_end_entry"
 RUN_BTN_OBJECT_NAME: str = "run_btn"
 SAVE_BTN_OBJECT_NAME: str = "save_btn"
 PROGRESS_BAR_OBJECT_NAME: str = "progress_bar"
@@ -156,6 +160,12 @@ class SpectralUnmixingMainWindow:
         self._background_exp_offset_label_action: Any = None
         self._background_exp_offset_help_action: Any = None
         self._background_exp_offset_entry_action: Any = None
+        self._background_slope_start_label_action: Any = None
+        self._background_slope_start_help_action: Any = None
+        self._background_slope_start_entry_action: Any = None
+        self._background_slope_end_label_action: Any = None
+        self._background_slope_end_help_action: Any = None
+        self._background_slope_end_entry_action: Any = None
         self._bg_value: float = 2500.0
         self._background_params: Dict[str, float | str] = self._default_background_parameters()
         self._scattering_params: Dict[str, float] = self._default_scattering_parameters()
@@ -455,17 +465,19 @@ class SpectralUnmixingMainWindow:
         bg_model_combo.setObjectName(BG_MODEL_COMBO_OBJECT_NAME)
         bg_model_combo.setToolTip(
             "Choose constant for a wavelength-independent background column, "
-            "or exponential for a wavelength-dependent decreasing background basis."
+            "exponential for a curved wavelength-dependent basis, "
+            "or slope for a linear start-to-end basis."
         )
         bg_model_combo.setEditable(False)
-        bg_model_combo.addItems(["constant", "exponential"])
+        bg_model_combo.addItems(["constant", "exponential", "slope"])
         bg_model_combo.setCurrentText(str(self._background_params["model"]))
         bg_model_combo.currentTextChanged.connect(self._on_background_model_changed)
         self._background_model_action = toolbar.addWidget(bg_model_combo)
         self._background_model_help_action = toolbar.addWidget(self._make_help_label(
             toolbar,
             "Background model. Constant uses one value at every LED band. "
-            "Exponential uses a wavelength-dependent nuisance basis controlled by start, end, shape, and offset.",
+            "Exponential uses a curved wavelength-dependent nuisance basis controlled by start, end, shape, and offset. "
+            "Slope linearly interpolates between start and end values across the wavelength range.",
             f"{BG_MODEL_COMBO_OBJECT_NAME}_help",
         ))
 
@@ -553,6 +565,46 @@ class SpectralUnmixingMainWindow:
         bg_exp_offset_entry.setAlignment(Qt.AlignmentFlag.AlignRight)
         bg_exp_offset_entry.editingFinished.connect(partial(self._on_background_exp_editing_finished, "exp_offset"))
         self._background_exp_offset_entry_action = toolbar.addWidget(bg_exp_offset_entry)
+
+        bg_slope_start_label = QLabel("slope start:", toolbar)
+        bg_slope_start_label.setObjectName(BG_SLOPE_START_LABEL_OBJECT_NAME)
+        self._background_slope_start_label_action = toolbar.addWidget(bg_slope_start_label)
+        self._background_slope_start_help_action = toolbar.addWidget(self._make_help_label(
+            toolbar,
+            "Linear slope background value at the shortest LED wavelength. "
+            "The background is interpolated from slope start to slope end.",
+            f"{BG_SLOPE_START_LABEL_OBJECT_NAME}_help",
+        ))
+
+        bg_slope_start_entry = QLineEdit(toolbar)
+        bg_slope_start_entry.setObjectName(BG_SLOPE_START_ENTRY_OBJECT_NAME)
+        bg_slope_start_entry.setText(str(self._background_params["slope_start"]))
+        bg_slope_start_entry.setMaximumWidth(72)
+        bg_slope_start_entry.setAlignment(Qt.AlignmentFlag.AlignRight)
+        bg_slope_start_entry.editingFinished.connect(
+            partial(self._on_background_exp_editing_finished, "slope_start")
+        )
+        self._background_slope_start_entry_action = toolbar.addWidget(bg_slope_start_entry)
+
+        bg_slope_end_label = QLabel("slope end:", toolbar)
+        bg_slope_end_label.setObjectName(BG_SLOPE_END_LABEL_OBJECT_NAME)
+        self._background_slope_end_label_action = toolbar.addWidget(bg_slope_end_label)
+        self._background_slope_end_help_action = toolbar.addWidget(self._make_help_label(
+            toolbar,
+            "Linear slope background value at the longest LED wavelength. "
+            "Use a lower value than slope start for a decreasing linear background.",
+            f"{BG_SLOPE_END_LABEL_OBJECT_NAME}_help",
+        ))
+
+        bg_slope_end_entry = QLineEdit(toolbar)
+        bg_slope_end_entry.setObjectName(BG_SLOPE_END_ENTRY_OBJECT_NAME)
+        bg_slope_end_entry.setText(str(self._background_params["slope_end"]))
+        bg_slope_end_entry.setMaximumWidth(72)
+        bg_slope_end_entry.setAlignment(Qt.AlignmentFlag.AlignRight)
+        bg_slope_end_entry.editingFinished.connect(
+            partial(self._on_background_exp_editing_finished, "slope_end")
+        )
+        self._background_slope_end_entry_action = toolbar.addWidget(bg_slope_end_entry)
 
         self._set_background_model_controls(str(self._background_params["model"]))
 
@@ -1471,6 +1523,8 @@ class SpectralUnmixingMainWindow:
                     background_exp_end=background_parameters["exp_end"],
                     background_exp_shape=background_parameters["exp_shape"],
                     background_exp_offset=background_parameters["exp_offset"],
+                    background_slope_start=background_parameters["slope_start"],
+                    background_slope_end=background_parameters["slope_end"],
                 )
             else:
                 background_parameters = snapshot["background_parameters"]
@@ -1489,6 +1543,8 @@ class SpectralUnmixingMainWindow:
                     background_exp_end=background_parameters["exp_end"],
                     background_exp_shape=background_parameters["exp_shape"],
                     background_exp_offset=background_parameters["exp_offset"],
+                    background_slope_start=background_parameters["slope_start"],
+                    background_slope_end=background_parameters["slope_end"],
                 )
 
             results: Dict[str, Dict[str, Any]] = {}
@@ -1515,6 +1571,8 @@ class SpectralUnmixingMainWindow:
                             background_exp_end=background_parameters["exp_end"],
                             background_exp_shape=background_parameters["exp_shape"],
                             background_exp_offset=background_parameters["exp_offset"],
+                            background_slope_start=background_parameters["slope_start"],
+                            background_slope_end=background_parameters["slope_end"],
                             scattering_parameters=snapshot["scattering_parameters"],
                             **(snapshot.get("iterative_parameters") or {}),
                         )
@@ -1662,6 +1720,8 @@ class SpectralUnmixingMainWindow:
         exp_end_entry = self._impl.findChild(QLineEdit, BG_EXP_END_ENTRY_OBJECT_NAME)
         exp_shape_entry = self._impl.findChild(QLineEdit, BG_EXP_SHAPE_ENTRY_OBJECT_NAME)
         exp_offset_entry = self._impl.findChild(QLineEdit, BG_EXP_OFFSET_ENTRY_OBJECT_NAME)
+        slope_start_entry = self._impl.findChild(QLineEdit, BG_SLOPE_START_ENTRY_OBJECT_NAME)
+        slope_end_entry = self._impl.findChild(QLineEdit, BG_SLOPE_END_ENTRY_OBJECT_NAME)
 
         model = model_combo.currentText() if model_combo is not None else self._background_params["model"]
         raw_params = {
@@ -1671,6 +1731,8 @@ class SpectralUnmixingMainWindow:
             "exp_end": self._background_params["exp_end"],
             "exp_shape": self._background_params["exp_shape"],
             "exp_offset": self._background_params["exp_offset"],
+            "slope_start": self._background_params["slope_start"],
+            "slope_end": self._background_params["slope_end"],
         }
         if model == "exponential":
             raw_params["exp_start"] = (
@@ -1693,6 +1755,17 @@ class SpectralUnmixingMainWindow:
                 if exp_offset_entry is not None
                 else self._background_params["exp_offset"]
             )
+        elif model == "slope":
+            raw_params["slope_start"] = (
+                slope_start_entry.text().strip()
+                if slope_start_entry is not None
+                else self._background_params["slope_start"]
+            )
+            raw_params["slope_end"] = (
+                slope_end_entry.text().strip()
+                if slope_end_entry is not None
+                else self._background_params["slope_end"]
+            )
 
         validated = processing.validate_background_parameters(raw_params)
         self._background_params = validated
@@ -1704,10 +1777,11 @@ class SpectralUnmixingMainWindow:
         model: str | None = None,
         background_enabled: bool = True,
     ) -> None:
-        """Toggle constant vs exponential background controls."""
+        """Toggle constant, exponential, and slope background controls."""
         if model is None:
             model = str(self._background_params.get("model", "constant"))
         use_exponential = model == "exponential"
+        use_slope = model == "slope"
 
         if self._background_label_action is not None:
             self._background_label_action.setVisible(background_enabled)
@@ -1718,9 +1792,9 @@ class SpectralUnmixingMainWindow:
         if self._background_model_help_action is not None:
             self._background_model_help_action.setVisible(background_enabled)
         if self._background_entry_action is not None:
-            self._background_entry_action.setVisible(background_enabled and not use_exponential)
+            self._background_entry_action.setVisible(background_enabled and not use_exponential and not use_slope)
         if self._background_entry_help_action is not None:
-            self._background_entry_help_action.setVisible(background_enabled and not use_exponential)
+            self._background_entry_help_action.setVisible(background_enabled and not use_exponential and not use_slope)
 
         exp_visible = background_enabled and use_exponential
         for action in (
@@ -1739,6 +1813,18 @@ class SpectralUnmixingMainWindow:
         ):
             if action is not None:
                 action.setVisible(exp_visible)
+
+        slope_visible = background_enabled and use_slope
+        for action in (
+            self._background_slope_start_label_action,
+            self._background_slope_start_help_action,
+            self._background_slope_start_entry_action,
+            self._background_slope_end_label_action,
+            self._background_slope_end_help_action,
+            self._background_slope_end_entry_action,
+        ):
+            if action is not None:
+                action.setVisible(slope_visible)
 
     def _read_scattering_params_from_ui(self) -> Dict[str, float]:
         """Read, validate, and cache scattering parameters from toolbar entries."""
@@ -1845,6 +1931,7 @@ class SpectralUnmixingMainWindow:
             return
 
         raw = bg_entry.text().strip()
+        previous = self._bg_value
         try:
             params = self._read_background_params_from_ui()
         except (ValueError, TypeError) as exc:
@@ -1854,7 +1941,6 @@ class SpectralUnmixingMainWindow:
                 status_label.setText(f"Invalid background: {exc}")
             return
 
-        previous = self._bg_value
         value = float(params["value"])
         bg_entry.setText(str(value))
 
@@ -1865,7 +1951,7 @@ class SpectralUnmixingMainWindow:
             status_label.setText(f"Background = {value}")
 
     def _on_background_exp_editing_finished(self, key: str) -> None:
-        """Validate one exponential background parameter."""
+        """Validate one non-constant background parameter."""
         from PySide6.QtWidgets import QLineEdit, QLabel
 
         entry_map = {
@@ -1873,12 +1959,16 @@ class SpectralUnmixingMainWindow:
             "exp_end": BG_EXP_END_ENTRY_OBJECT_NAME,
             "exp_shape": BG_EXP_SHAPE_ENTRY_OBJECT_NAME,
             "exp_offset": BG_EXP_OFFSET_ENTRY_OBJECT_NAME,
+            "slope_start": BG_SLOPE_START_ENTRY_OBJECT_NAME,
+            "slope_end": BG_SLOPE_END_ENTRY_OBJECT_NAME,
         }
         label_map = {
             "exp_start": "exp_start",
             "exp_end": "exp_end",
             "exp_shape": "exp_shape",
             "exp_offset": "exp_offset",
+            "slope_start": "slope_start",
+            "slope_end": "slope_end",
         }
 
         entry = self._impl.findChild(QLineEdit, entry_map[key])
