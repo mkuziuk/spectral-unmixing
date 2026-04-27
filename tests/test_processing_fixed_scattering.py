@@ -40,12 +40,56 @@ class TestFixedScatteringSolver(unittest.TestCase):
         self.assertGreater(profile[0], profile[1])
         self.assertGreater(profile[1], profile[2])
 
+    def test_build_background_profile_shape_and_offset_apply_baseline(self):
+        profile = processing.build_background_profile(
+            [500, 600, 700],
+            model="exponential",
+            exp_start=1.0,
+            exp_end=0.1,
+            exp_shape=2.0,
+            exp_offset=0.05,
+        )
+
+        self.assertTrue(np.allclose(profile[[0, -1]], [1.05, 0.15]))
+        self.assertGreater(profile[1], 0.15)
+        self.assertLess(profile[1], 1.05)
+
+    def test_build_background_profile_allows_zero_exponential_end(self):
+        profile = processing.build_background_profile(
+            [500, 600, 700],
+            model="exponential",
+            exp_start=1.0,
+            exp_end=0.0,
+        )
+
+        self.assertTrue(np.all(np.isfinite(profile)))
+        self.assertEqual(float(profile[0]), 1.0)
+        self.assertEqual(float(profile[-1]), 0.0)
+
     def test_validate_background_parameters_rejects_invalid_exponential_values(self):
         params = processing.get_default_background_parameters()
         params.update({"model": "exponential", "exp_end": 0.0})
 
+        validated = processing.validate_background_parameters(params)
+        self.assertEqual(validated["exp_end"], 0.0)
+
+        params = processing.get_default_background_parameters()
+        params.update({"model": "exponential", "exp_end": -0.1})
+
         with self.assertRaises(ValueError):
             processing.validate_background_parameters(params)
+
+        params = processing.get_default_background_parameters()
+        params.update({"model": "exponential", "exp_shape": 0.0})
+
+        with self.assertRaises(ValueError):
+            processing.validate_background_parameters(params)
+
+        params = processing.get_default_background_parameters()
+        params.update({"model": "exponential", "exp_offset": 0.5})
+
+        validated = processing.validate_background_parameters(params)
+        self.assertEqual(validated["exp_offset"], 0.5)
 
     def test_build_overlap_matrix_uses_exponential_background_column(self):
         common_wl = np.array([500.0, 600.0, 700.0])

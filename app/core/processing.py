@@ -29,6 +29,8 @@ SUPPORTED_BACKGROUND_MODELS: tuple[str, ...] = (
 BACKGROUND_CONSTANT_VALUE: float = 2500.0
 BACKGROUND_EXP_START: float = 1.0
 BACKGROUND_EXP_END: float = 0.1
+BACKGROUND_EXP_SHAPE: float = 1.0
+BACKGROUND_EXP_OFFSET: float = 0.0
 
 # Iterative solver convergence defaults.
 ITERATIVE_MAX_ITER: int = 25
@@ -84,6 +86,8 @@ def get_default_background_parameters() -> dict[str, float | str]:
         "value": BACKGROUND_CONSTANT_VALUE,
         "exp_start": BACKGROUND_EXP_START,
         "exp_end": BACKGROUND_EXP_END,
+        "exp_shape": BACKGROUND_EXP_SHAPE,
+        "exp_offset": BACKGROUND_EXP_OFFSET,
     }
 
 
@@ -99,25 +103,33 @@ def validate_background_parameters(params: dict) -> dict[str, float | str]:
     value = float(params.get("value", BACKGROUND_CONSTANT_VALUE))
     exp_start = float(params.get("exp_start", BACKGROUND_EXP_START))
     exp_end = float(params.get("exp_end", BACKGROUND_EXP_END))
+    exp_shape = float(params.get("exp_shape", BACKGROUND_EXP_SHAPE))
+    exp_offset = float(params.get("exp_offset", BACKGROUND_EXP_OFFSET))
 
     for key, item in (
         ("value", value),
         ("exp_start", exp_start),
         ("exp_end", exp_end),
+        ("exp_shape", exp_shape),
+        ("exp_offset", exp_offset),
     ):
         if not np.isfinite(item):
             raise ValueError(f"{key} must be finite.")
 
+    if exp_shape <= 0:
+        raise ValueError("exp_shape must be > 0.")
     if exp_start <= 0:
         raise ValueError("exp_start must be > 0.")
-    if exp_end <= 0:
-        raise ValueError("exp_end must be > 0.")
+    if exp_end < 0:
+        raise ValueError("exp_end must be >= 0.")
 
     return {
         "model": model,
         "value": value,
         "exp_start": exp_start,
         "exp_end": exp_end,
+        "exp_shape": exp_shape,
+        "exp_offset": exp_offset,
     }
 
 
@@ -127,6 +139,8 @@ def build_background_profile(
     value: float = BACKGROUND_CONSTANT_VALUE,
     exp_start: float = BACKGROUND_EXP_START,
     exp_end: float = BACKGROUND_EXP_END,
+    exp_shape: float = BACKGROUND_EXP_SHAPE,
+    exp_offset: float = BACKGROUND_EXP_OFFSET,
 ) -> np.ndarray:
     """Return one background basis value per LED band."""
     params = validate_background_parameters({
@@ -134,6 +148,8 @@ def build_background_profile(
         "value": value,
         "exp_start": exp_start,
         "exp_end": exp_end,
+        "exp_shape": exp_shape,
+        "exp_offset": exp_offset,
     })
     wavelengths = np.asarray(led_wavelengths, dtype=float).reshape(-1)
 
@@ -150,9 +166,15 @@ def build_background_profile(
         return np.full(wavelengths.shape, float(params["exp_start"]), dtype=float)
 
     t = (wavelengths - wl_min) / (wl_max - wl_min)
-    profile = float(params["exp_start"]) * (
-        float(params["exp_end"]) / float(params["exp_start"])
-    ) ** t
+    offset = float(params["exp_offset"])
+    exp_start_value = float(params["exp_start"])
+    exp_end_value = float(params["exp_end"])
+    if exp_end_value == 0.0:
+        profile = offset + exp_start_value * np.where(t <= 0.0, 1.0, 0.0)
+    else:
+        profile = offset + exp_start_value * (
+            exp_end_value / exp_start_value
+        ) ** (t ** float(params["exp_shape"]))
     return _validate_finite("background_profile", profile)
 
 
@@ -373,6 +395,8 @@ def build_overlap_matrix(
     background_model: str = BACKGROUND_MODEL_CONSTANT,
     background_exp_start: float = BACKGROUND_EXP_START,
     background_exp_end: float = BACKGROUND_EXP_END,
+    background_exp_shape: float = BACKGROUND_EXP_SHAPE,
+    background_exp_offset: float = BACKGROUND_EXP_OFFSET,
 ) -> tuple:
     """
     Build the overlap matrix A ∈ R^{N_LED × N_components}.
@@ -402,6 +426,11 @@ def build_overlap_matrix(
     background_exp_start, background_exp_end : float, optional
         Exponential background values at the shortest and longest LED
         wavelengths respectively.
+    background_exp_shape : float, optional
+        Curvature parameter; values above 1 delay the decay and values below
+        1 make it happen earlier.
+    background_exp_offset : float, optional
+        Additive baseline/floor for the exponential background.
 
     Returns
     -------
@@ -444,6 +473,8 @@ def build_overlap_matrix(
             value=background_value,
             exp_start=background_exp_start,
             exp_end=background_exp_end,
+            exp_shape=background_exp_shape,
+            exp_offset=background_exp_offset,
         )
 
     for i, phi in enumerate(led_profiles):
@@ -619,6 +650,8 @@ def solve_unmixing_iterative(
     background_model: str = BACKGROUND_MODEL_CONSTANT,
     background_exp_start: float = BACKGROUND_EXP_START,
     background_exp_end: float = BACKGROUND_EXP_END,
+    background_exp_shape: float = BACKGROUND_EXP_SHAPE,
+    background_exp_offset: float = BACKGROUND_EXP_OFFSET,
     max_iter: int = ITERATIVE_MAX_ITER,
     tol_rel: float = ITERATIVE_TOL_REL,
     tol_rmse: float = ITERATIVE_TOL_RMSE,
@@ -660,6 +693,8 @@ def solve_unmixing_iterative(
         "value": background_value,
         "exp_start": background_exp_start,
         "exp_end": background_exp_end,
+        "exp_shape": background_exp_shape,
+        "exp_offset": background_exp_offset,
     })
 
     H, W, _ = od_cube.shape
@@ -702,6 +737,8 @@ def solve_unmixing_iterative(
                 background_model=background_params["model"],
                 background_exp_start=background_params["exp_start"],
                 background_exp_end=background_params["exp_end"],
+                background_exp_shape=background_params["exp_shape"],
+                background_exp_offset=background_params["exp_offset"],
             )
             A_iter = _validate_finite("overlap_matrix", A_iter)
             concentrations, rmse_map, fitted_od = _solve_unmixing_nnls(od_cube, A_iter)
