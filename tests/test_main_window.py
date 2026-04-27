@@ -371,6 +371,12 @@ class TestQt003Toolbar(unittest.TestCase):
             "bg_exp_offset_label",
             "bg_exp_offset_label_help",
             "bg_exp_offset_entry",
+            "bg_slope_start_label",
+            "bg_slope_start_label_help",
+            "bg_slope_start_entry",
+            "bg_slope_end_label",
+            "bg_slope_end_label_help",
+            "bg_slope_end_entry",
         ]
 
         toolbar = self.impl.findChild(QToolBar, "main_toolbar")
@@ -705,6 +711,8 @@ class TestQt003Toolbar(unittest.TestCase):
                 "exp_end": 0.1,
                 "exp_shape": 1.0,
                 "exp_offset": 0.0,
+                "slope_start": 1.0,
+                "slope_end": 0.1,
             },
         )
         self.assertEqual(

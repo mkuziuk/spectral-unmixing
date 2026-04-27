@@ -67,6 +67,16 @@ class TestFixedScatteringSolver(unittest.TestCase):
         self.assertEqual(float(profile[0]), 1.0)
         self.assertEqual(float(profile[-1]), 0.0)
 
+    def test_build_background_profile_slope_interpolates_by_wavelength(self):
+        profile = processing.build_background_profile(
+            [500, 600, 700],
+            model="slope",
+            slope_start=1.0,
+            slope_end=0.2,
+        )
+
+        self.assertTrue(np.allclose(profile, [1.0, 0.6, 0.2]))
+
     def test_validate_background_parameters_rejects_invalid_exponential_values(self):
         params = processing.get_default_background_parameters()
         params.update({"model": "exponential", "exp_end": 0.0})

@@ -43,6 +43,8 @@ CORE_TOOLBAR_OBJECT_NAMES = [
     "bg_exp_end_entry",
     "bg_exp_shape_entry",
     "bg_exp_offset_entry",
+    "bg_slope_start_entry",
+    "bg_slope_end_entry",
     "theme_combo",
     "scattering_toolbar",
     "scattering_advanced_toolbar",
