@@ -242,13 +242,16 @@ class SpectralUnmixingMainWindow:
             combo.setCurrentIndex(idx)
 
     def _set_window_properties(self) -> None:
-        """Set window title and geometry (import-safe)."""
-        from PySide6.QtCore import Qt
+        """Set window title and geometry (import-safe).
 
+        Note: WindowMaximized is *not* set here because doing so makes
+        splitter sizes environment-dependent (constrained by whichever
+        screen geometry happens to be available).  Callers that want a
+        maximised window must use :meth:`show_full_size` instead.
+        """
         self._impl.setWindowTitle("Spectral Unmixing")
         self._impl.resize(1400, 900)
         self._impl.setMinimumSize(1000, 700)
-        self._impl.setWindowState(self._impl.windowState() | Qt.WindowState.WindowMaximized)
 
     def show_full_size(self) -> None:
         """Show the window using the available screen area and maximized state."""
