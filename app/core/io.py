@@ -162,10 +162,10 @@ def detect_folders(root_dir: str) -> dict:
 
 
 def _parse_wavelengths_from_folder(folder: str) -> list:
-    """Extract wavelength integers from filenames like '450nm_...' """
-    pattern = re.compile(r"^(\d+)nm[_.]")
+    """Extract wavelength integers from filenames like '450nm_...' or '450nm.DNG'."""
+    pattern = re.compile(r"^(\d+)nm")
     wls = set()
-    for fname in os.listdir(folder):
+    for fname in sorted(os.listdir(folder)):
         m = pattern.match(fname)
         if m:
             wls.add(int(m.group(1)))
@@ -249,9 +249,13 @@ def _load_image_as_grayscale(path: str) -> np.ndarray:
 
 
 def _find_image_for_wavelength(folder: str, wl: int) -> str:
-    """Find the file matching a given wavelength in a folder."""
+    """Find the file matching a given wavelength in a folder.
+
+    Scans the directory in sorted order for deterministic selection
+    when multiple files share the same wavelength prefix.
+    """
     prefix = f"{wl}nm"
-    for fname in os.listdir(folder):
+    for fname in sorted(os.listdir(folder)):
         if fname.startswith(prefix):
             return os.path.join(folder, fname)
     raise FileNotFoundError(
@@ -288,7 +292,13 @@ def load_chromophore_spectra(data_dir: str) -> dict:
 
 
 def _load_two_column_csv(path: str):
-    """Load a CSV with a header row and two numeric columns."""
+    """Load a CSV with a header row and two numeric columns.
+
+    Raises
+    ------
+    ValueError
+        If a data row contains non-numeric values in the first two columns.
+    """
     wavelengths = []
     values = []
     with open(path, "r") as f:
@@ -297,8 +307,13 @@ def _load_two_column_csv(path: str):
         for row in reader:
             if len(row) < 2:
                 continue
-            wavelengths.append(float(row[0]))
-            values.append(float(row[1]))
+            try:
+                wavelengths.append(float(row[0]))
+                values.append(float(row[1]))
+            except ValueError as exc:
+                raise ValueError(
+                    f"Non-numeric data in {path!r}, row {reader.line_num}: {row!r}"
+                ) from exc
     return wavelengths, values
 
 
@@ -345,9 +360,21 @@ def load_led_emission(data_dir: str, led_wavelengths: list):
         for row in reader:
             if len(row) < 2:
                 continue
-            rows_wl.append(float(row[0]))
-            for led_nm, idx in col_indices.items():
-                rows_data[led_nm].append(float(row[idx]))
+            # Check that all required columns are present before parsing
+            max_idx = max(col_indices.values()) if col_indices else 0
+            if len(row) <= max_idx:
+                raise ValueError(
+                    f"Ragged row in {path!r}, line {reader.line_num}: "
+                    f"expected at least {max_idx + 1} columns, got {len(row)}: {row!r}"
+                )
+            try:
+                rows_wl.append(float(row[0]))
+                for led_nm, idx in col_indices.items():
+                    rows_data[led_nm].append(float(row[idx]))
+            except ValueError as exc:
+                raise ValueError(
+                    f"Non-numeric data in {path!r}, row {reader.line_num}: {row!r}"
+                ) from exc
 
     common_wl = np.asarray(rows_wl)
     emission = {k: np.asarray(v) for k, v in rows_data.items()}
