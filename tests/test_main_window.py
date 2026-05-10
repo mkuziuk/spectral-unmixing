@@ -131,7 +131,14 @@ class TestSplitterShell(unittest.TestCase):
         The right pane fills the remaining width (minus splitter handle).
         """
         from app.gui_qt.main_window import INITIAL_SPLITTER_SIZES
-        # Qt only applies splitter sizes after the widget is shown.
+        # Qt only applies splitter sizes after the widget is shown. In headless
+        # offscreen test environments, Qt may otherwise choose a much smaller
+        # default top-level window size than the application's target splitter
+        # width, which makes the right pane shrink even though the splitter was
+        # configured correctly.
+        from PySide6.QtCore import Qt
+        self.impl.setWindowState(self.impl.windowState() & ~Qt.WindowState.WindowMaximized)
+        self.impl.resize(sum(INITIAL_SPLITTER_SIZES), 900)
         self.impl.show()
         # Process pending events so the layout settles.
         from PySide6.QtTest import QTest
