@@ -10,7 +10,7 @@ from scipy.interpolate import interp1d
 from scipy.optimize import nnls
 
 
-SUPPORTED_UNMIXING_METHODS: tuple[str, ...] = ("ls", "nnls", "mu_a")
+SUPPORTED_UNMIXING_METHODS: tuple[str, ...] = ("ls", "nnls", "mu_a", "diffusion")
 
 # Fixed scattering prior used by the mu_a inversion solver.
 SCATTERING_REFERENCE_WAVELENGTH_NM: float = 500.0
@@ -23,10 +23,12 @@ SCATTERING_ANISOTROPY_G: float = 0.8
 BACKGROUND_MODEL_CONSTANT: str = "constant"
 BACKGROUND_MODEL_EXPONENTIAL: str = "exponential"
 BACKGROUND_MODEL_SLOPE: str = "slope"
+BACKGROUND_MODEL_SCATTERING: str = "scattering"
 SUPPORTED_BACKGROUND_MODELS: tuple[str, ...] = (
     BACKGROUND_MODEL_CONSTANT,
     BACKGROUND_MODEL_EXPONENTIAL,
     BACKGROUND_MODEL_SLOPE,
+    BACKGROUND_MODEL_SCATTERING,
 )
 BACKGROUND_CONSTANT_VALUE: float = 2500.0
 BACKGROUND_EXP_START: float = 1.0
@@ -35,6 +37,8 @@ BACKGROUND_EXP_SHAPE: float = 1.0
 BACKGROUND_EXP_OFFSET: float = 0.0
 BACKGROUND_SLOPE_START: float = 1.0
 BACKGROUND_SLOPE_END: float = 0.1
+BACKGROUND_SCATTERING_LAMBDA0_NM: float = SCATTERING_REFERENCE_WAVELENGTH_NM
+BACKGROUND_SCATTERING_POWER_B: float = SCATTERING_POWER_B
 
 # Iterative solver convergence defaults.
 ITERATIVE_MAX_ITER: int = 25
@@ -42,6 +46,13 @@ ITERATIVE_TOL_REL: float = 1e-4
 ITERATIVE_TOL_RMSE: float = 1e-6
 ITERATIVE_DAMPING: float = 0.5
 ITERATIVE_INITIAL_CONCENTRATION: float = 1e-4
+
+# Welch diffusion-solver defaults.
+DIFFUSION_N_TISSUE: float = 1.4
+DIFFUSION_N_OUT: float = 1.0
+DIFFUSION_MU_A_MIN: float = 1e-6
+DIFFUSION_MU_A_MAX: float = 10.0
+DIFFUSION_N_GRID: int = 512
 
 
 def get_default_scattering_parameters() -> dict[str, float]:
@@ -94,6 +105,8 @@ def get_default_background_parameters() -> dict[str, float | str]:
         "exp_offset": BACKGROUND_EXP_OFFSET,
         "slope_start": BACKGROUND_SLOPE_START,
         "slope_end": BACKGROUND_SLOPE_END,
+        "scattering_lambda0_nm": BACKGROUND_SCATTERING_LAMBDA0_NM,
+        "scattering_power_b": BACKGROUND_SCATTERING_POWER_B,
     }
 
 
@@ -113,6 +126,12 @@ def validate_background_parameters(params: dict) -> dict[str, float | str]:
     exp_offset = float(params.get("exp_offset", BACKGROUND_EXP_OFFSET))
     slope_start = float(params.get("slope_start", BACKGROUND_SLOPE_START))
     slope_end = float(params.get("slope_end", BACKGROUND_SLOPE_END))
+    scattering_lambda0_nm = float(
+        params.get("scattering_lambda0_nm", BACKGROUND_SCATTERING_LAMBDA0_NM)
+    )
+    scattering_power_b = float(
+        params.get("scattering_power_b", BACKGROUND_SCATTERING_POWER_B)
+    )
 
     for key, item in (
         ("value", value),
@@ -122,6 +141,8 @@ def validate_background_parameters(params: dict) -> dict[str, float | str]:
         ("exp_offset", exp_offset),
         ("slope_start", slope_start),
         ("slope_end", slope_end),
+        ("scattering_lambda0_nm", scattering_lambda0_nm),
+        ("scattering_power_b", scattering_power_b),
     ):
         if not np.isfinite(item):
             raise ValueError(f"{key} must be finite.")
@@ -132,6 +153,10 @@ def validate_background_parameters(params: dict) -> dict[str, float | str]:
         raise ValueError("exp_start must be > 0.")
     if exp_end < 0:
         raise ValueError("exp_end must be >= 0.")
+    if scattering_lambda0_nm <= 0:
+        raise ValueError("scattering_lambda0_nm must be > 0.")
+    if scattering_power_b < 0:
+        raise ValueError("scattering_power_b must be >= 0.")
 
     return {
         "model": model,
@@ -142,6 +167,8 @@ def validate_background_parameters(params: dict) -> dict[str, float | str]:
         "exp_offset": exp_offset,
         "slope_start": slope_start,
         "slope_end": slope_end,
+        "scattering_lambda0_nm": scattering_lambda0_nm,
+        "scattering_power_b": scattering_power_b,
     }
 
 
@@ -155,6 +182,8 @@ def build_background_profile(
     exp_offset: float = BACKGROUND_EXP_OFFSET,
     slope_start: float = BACKGROUND_SLOPE_START,
     slope_end: float = BACKGROUND_SLOPE_END,
+    scattering_lambda0_nm: float = BACKGROUND_SCATTERING_LAMBDA0_NM,
+    scattering_power_b: float = BACKGROUND_SCATTERING_POWER_B,
 ) -> np.ndarray:
     """Return one background basis value per LED band."""
     params = validate_background_parameters({
@@ -166,6 +195,8 @@ def build_background_profile(
         "exp_offset": exp_offset,
         "slope_start": slope_start,
         "slope_end": slope_end,
+        "scattering_lambda0_nm": scattering_lambda0_nm,
+        "scattering_power_b": scattering_power_b,
     })
     wavelengths = np.asarray(led_wavelengths, dtype=float).reshape(-1)
 
@@ -174,6 +205,13 @@ def build_background_profile(
 
     if wavelengths.size == 0:
         return np.asarray([], dtype=float)
+    if params["model"] == BACKGROUND_MODEL_SCATTERING:
+        wl_safe = np.clip(wavelengths, 1e-6, None)
+        lambda0 = float(params["scattering_lambda0_nm"])
+        b = float(params["scattering_power_b"])
+        # Power-law shape normalized to 1 at lambda0.
+        profile = (wl_safe / lambda0) ** (-b)
+        return _validate_finite("background_profile", profile)
     wl_min = float(np.nanmin(wavelengths))
     wl_max = float(np.nanmax(wavelengths))
     if not np.isfinite(wl_min) or not np.isfinite(wl_max):
@@ -181,6 +219,8 @@ def build_background_profile(
     if wl_max == wl_min:
         if params["model"] == BACKGROUND_MODEL_SLOPE:
             return np.full(wavelengths.shape, float(params["slope_start"]), dtype=float)
+        if params["model"] == BACKGROUND_MODEL_SCATTERING:
+            return np.full(wavelengths.shape, 1.0, dtype=float)
         return np.full(wavelengths.shape, float(params["exp_start"]), dtype=float)
 
     t = (wavelengths - wl_min) / (wl_max - wl_min)
@@ -254,6 +294,48 @@ def validate_iterative_solver_parameters(params: dict) -> dict[str, float | int]
         raise ValueError("damping must satisfy 0 < damping <= 1.")
     if validated["initial_concentration"] < 0:
         raise ValueError("initial_concentration must be >= 0.")
+
+    return validated
+
+
+def get_default_diffusion_parameters() -> dict[str, float | int]:
+    """Return default Welch diffusion inversion parameters."""
+    return {
+        "n_tissue": DIFFUSION_N_TISSUE,
+        "n_out": DIFFUSION_N_OUT,
+        "mu_a_min": DIFFUSION_MU_A_MIN,
+        "mu_a_max": DIFFUSION_MU_A_MAX,
+        "n_grid": DIFFUSION_N_GRID,
+    }
+
+
+def validate_diffusion_parameters(params: dict) -> dict[str, float | int]:
+    """Coerce and validate Welch diffusion inversion parameters from UI/API input."""
+    required = ("n_tissue", "n_out", "mu_a_min", "mu_a_max", "n_grid")
+    missing = [k for k in required if k not in params]
+    if missing:
+        raise ValueError(f"Missing diffusion parameters: {', '.join(missing)}")
+
+    validated: dict[str, float | int] = {
+        "n_tissue": float(params["n_tissue"]),
+        "n_out": float(params["n_out"]),
+        "mu_a_min": float(params["mu_a_min"]),
+        "mu_a_max": float(params["mu_a_max"]),
+        "n_grid": int(params["n_grid"]),
+    }
+
+    if validated["n_tissue"] <= 0.0:
+        raise ValueError("n_tissue must be > 0.")
+    if validated["n_out"] <= 0.0:
+        raise ValueError("n_out must be > 0.")
+    if validated["mu_a_min"] <= 0.0:
+        raise ValueError("mu_a_min must be > 0.")
+    if validated["mu_a_max"] <= 0.0:
+        raise ValueError("mu_a_max must be > 0.")
+    if validated["mu_a_max"] <= validated["mu_a_min"]:
+        raise ValueError("mu_a_max must be > mu_a_min.")
+    if validated["n_grid"] < 32:
+        raise ValueError("n_grid must be >= 32.")
 
     return validated
 
@@ -423,6 +505,8 @@ def build_overlap_matrix(
     background_exp_offset: float = BACKGROUND_EXP_OFFSET,
     background_slope_start: float = BACKGROUND_SLOPE_START,
     background_slope_end: float = BACKGROUND_SLOPE_END,
+    background_scattering_lambda0_nm: float = BACKGROUND_SCATTERING_LAMBDA0_NM,
+    background_scattering_power_b: float = BACKGROUND_SCATTERING_POWER_B,
 ) -> tuple:
     """
     Build the overlap matrix A ∈ R^{N_LED × N_components}.
@@ -460,6 +544,9 @@ def build_overlap_matrix(
     background_slope_start, background_slope_end : float, optional
         Linear slope background values at the shortest and longest LED
         wavelengths respectively.
+    background_scattering_lambda0_nm, background_scattering_power_b : float, optional
+        Power-law scattering-shaped background basis parameters used when
+        background_model="scattering".
 
     Returns
     -------
@@ -506,6 +593,8 @@ def build_overlap_matrix(
             exp_offset=background_exp_offset,
             slope_start=background_slope_start,
             slope_end=background_slope_end,
+            scattering_lambda0_nm=background_scattering_lambda0_nm,
+            scattering_power_b=background_scattering_power_b,
         )
 
     for i, phi in enumerate(led_profiles):
@@ -685,6 +774,8 @@ def solve_unmixing_iterative(
     background_exp_offset: float = BACKGROUND_EXP_OFFSET,
     background_slope_start: float = BACKGROUND_SLOPE_START,
     background_slope_end: float = BACKGROUND_SLOPE_END,
+    background_scattering_lambda0_nm: float = BACKGROUND_SCATTERING_LAMBDA0_NM,
+    background_scattering_power_b: float = BACKGROUND_SCATTERING_POWER_B,
     max_iter: int = ITERATIVE_MAX_ITER,
     tol_rel: float = ITERATIVE_TOL_REL,
     tol_rmse: float = ITERATIVE_TOL_RMSE,
@@ -730,6 +821,8 @@ def solve_unmixing_iterative(
         "exp_offset": background_exp_offset,
         "slope_start": background_slope_start,
         "slope_end": background_slope_end,
+        "scattering_lambda0_nm": background_scattering_lambda0_nm,
+        "scattering_power_b": background_scattering_power_b,
     })
 
     H, W, _ = od_cube.shape
@@ -783,6 +876,8 @@ def solve_unmixing_iterative(
                 background_exp_offset=background_params["exp_offset"],
                 background_slope_start=background_params["slope_start"],
                 background_slope_end=background_params["slope_end"],
+                background_scattering_lambda0_nm=background_params["scattering_lambda0_nm"],
+                background_scattering_power_b=background_params["scattering_power_b"],
             )
             A_iter = _validate_finite("overlap_matrix", A_iter)
             concentrations, rmse_map, fitted_od = _solve_unmixing_nnls(od_cube, A_iter)
@@ -905,6 +1000,7 @@ def solve_unmixing(
     A: np.ndarray,
     method: str = "ls",
     mus_prime: np.ndarray | None = None,
+    diffusion_parameters: dict | None = None,
 ) -> tuple:
     """
     Pixelwise spectral unmixing.
@@ -935,6 +1031,23 @@ def solve_unmixing(
         if mus_prime is None:
             raise ValueError("mus_prime is required for method='mu_a'.")
         return _solve_unmixing_mu_a(od_cube, A, mus_prime)
+    if method == "diffusion":
+        if mus_prime is None:
+            raise ValueError("mus_prime is required for method='diffusion'.")
+        params = get_default_diffusion_parameters()
+        if diffusion_parameters is not None:
+            params.update(diffusion_parameters)
+        params = validate_diffusion_parameters(params)
+        return _solve_unmixing_diffusion(
+            od_cube,
+            A,
+            mus_prime,
+            n_tissue=float(params["n_tissue"]),
+            n_out=float(params["n_out"]),
+            mu_a_min=float(params["mu_a_min"]),
+            mu_a_max=float(params["mu_a_max"]),
+            n_grid=int(params["n_grid"]),
+        )
     if method == "ls":
         return _solve_unmixing_ls(od_cube, A)
     raise ValueError(
@@ -1089,6 +1202,175 @@ def _solve_unmixing_mu_a(
     rmse_map = np.sqrt(np.mean(residual_per_pixel ** 2, axis=2))
 
     return concentrations, rmse_map, fitted
+
+
+def _welch_reflectance(
+    mu_a: np.ndarray,
+    mu_s_prime: np.ndarray,
+    anisotropy_g: float,
+    n_tissue: float,
+    n_out: float = 1.0,
+    eps: float = 1e-12,
+) -> np.ndarray:
+    """
+    Welch-style diffusion approximation reflectance (Case 6.4.1.6).
+
+    Maps optical properties -> diffuse wide-beam reflectance with a mismatched boundary.
+    """
+    mu_a = np.asarray(mu_a, dtype=float)
+    mu_s_prime = np.asarray(mu_s_prime, dtype=float).reshape(-1)
+    if mu_a.shape[-1] != mu_s_prime.shape[0]:
+        raise ValueError("mu_a last dimension must match mu_s_prime length.")
+    if not (0.0 <= float(anisotropy_g) < 1.0):
+        raise ValueError("anisotropy_g must satisfy 0 <= g < 1.")
+    if float(n_tissue) <= 0.0 or float(n_out) <= 0.0:
+        raise ValueError("Refractive indices must be > 0.")
+
+    mu_a_clipped = np.clip(mu_a, eps, None)
+    mu_tr = mu_a_clipped + mu_s_prime
+    mu_eff = np.sqrt(3.0 * mu_a_clipped * mu_tr)
+
+    q = (mu_eff - 2.0 * mu_a_clipped) / np.clip(mu_eff + 2.0 * mu_a_clipped, eps, None)
+
+    n_rel = float(n_tissue) / float(n_out)
+    r21 = -1.440 / (n_rel ** 2) + 0.710 / n_rel + 0.668 + 0.0636 * n_rel
+    r_sd = ((n_rel - 1.0) / (n_rel + 1.0)) ** 2
+
+    den = 1.0 - r21 * q
+    den = np.where(np.abs(den) < eps, np.sign(den) * eps, den)
+
+    R_diffuse = (1.0 - r21) * (1.0 - r_sd) * (q / den)
+    R_total = r_sd + R_diffuse
+    return np.clip(R_total, 0.0, 1.0)
+
+
+def _invert_welch_mu_a_from_reflectance(
+    reflectance: np.ndarray,
+    mu_s_prime: np.ndarray,
+    anisotropy_g: float,
+    n_tissue: float,
+    n_out: float = 1.0,
+    mu_a_min: float = 1e-6,
+    mu_a_max: float = 10.0,
+    n_grid: int = 512,
+    eps: float = 1e-12,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Invert Welch reflectance to estimate mu_a per band using a lookup table."""
+    reflectance = np.asarray(reflectance, dtype=float)
+    mu_s_prime = np.asarray(mu_s_prime, dtype=float).reshape(-1)
+    if reflectance.shape[-1] != mu_s_prime.shape[0]:
+        raise ValueError("reflectance last dimension must match mu_s_prime length.")
+    if mu_a_min <= 0.0 or mu_a_max <= 0.0 or mu_a_max <= mu_a_min:
+        raise ValueError("mu_a_min/mu_a_max must be positive and mu_a_max > mu_a_min.")
+    n_grid = int(n_grid)
+    if n_grid < 32:
+        raise ValueError("n_grid must be >= 32.")
+
+    R = np.clip(reflectance, 0.0, 1.0)
+    finite = np.isfinite(R)
+    mu_a_out = np.full_like(R, float(mu_a_min), dtype=float)
+
+    mu_a_grid = np.logspace(np.log10(mu_a_min), np.log10(mu_a_max), n_grid, dtype=float)
+    n_bands = mu_s_prime.shape[0]
+
+    R_min = np.full(n_bands, np.nan, dtype=float)
+    R_max = np.full(n_bands, np.nan, dtype=float)
+    tables: list[tuple[np.ndarray, np.ndarray]] = []
+    for b in range(n_bands):
+        R_b = _welch_reflectance(
+            mu_a_grid[:, np.newaxis],
+            mu_s_prime=np.asarray([mu_s_prime[b]]),
+            anisotropy_g=float(anisotropy_g),
+            n_tissue=float(n_tissue),
+            n_out=float(n_out),
+            eps=eps,
+        ).reshape(-1)
+        order = np.argsort(R_b)
+        R_sorted = R_b[order]
+        mu_sorted = mu_a_grid[order]
+        tables.append((R_sorted, mu_sorted))
+        R_min[b] = float(np.nanmin(R_sorted))
+        R_max[b] = float(np.nanmax(R_sorted))
+
+    within = (R >= R_min) & (R <= R_max)
+    valid = finite & within
+
+    flat_R = R.reshape(-1, n_bands)
+    flat_valid = valid.reshape(-1, n_bands)
+    flat_mu = mu_a_out.reshape(-1, n_bands)
+    for b in range(n_bands):
+        ok = flat_valid[:, b]
+        if not np.any(ok):
+            continue
+        R_sorted, mu_sorted = tables[b]
+        flat_mu[ok, b] = np.interp(flat_R[ok, b], R_sorted, mu_sorted)
+
+    return mu_a_out, valid
+
+
+def _solve_unmixing_diffusion(
+    od_cube: np.ndarray,
+    E: np.ndarray,
+    mus_prime: np.ndarray,
+    anisotropy_g: float = SCATTERING_ANISOTROPY_G,
+    n_tissue: float = 1.4,
+    n_out: float = 1.0,
+    mu_a_min: float = 1e-6,
+    mu_a_max: float = 10.0,
+    n_grid: int = 512,
+    eps: float = 1e-12,
+) -> tuple:
+    """Welch diffusion OD→μa inversion followed by NNLS chromophore fit."""
+    H, W, N = od_cube.shape
+    n_components = E.shape[1]
+    mus_prime = np.asarray(mus_prime, dtype=float).reshape(-1)
+
+    if E.shape[0] != N:
+        raise ValueError(
+            "For method='diffusion', the absorption basis must have one row per OD band."
+        )
+    if mus_prime.shape[0] != N:
+        raise ValueError(
+            "For method='diffusion', mus_prime must have one entry per OD band."
+        )
+
+    reflectance = 10.0 ** (-np.asarray(od_cube, dtype=float))
+    mu_a_est, valid = _invert_welch_mu_a_from_reflectance(
+        reflectance,
+        mu_s_prime=mus_prime,
+        anisotropy_g=float(anisotropy_g),
+        n_tissue=float(n_tissue),
+        n_out=float(n_out),
+        mu_a_min=float(mu_a_min),
+        mu_a_max=float(mu_a_max),
+        n_grid=int(n_grid),
+        eps=eps,
+    )
+
+    Y = mu_a_est.reshape(-1, N)
+    valid_flat = valid.reshape(-1, N)
+    X = np.zeros((n_components, Y.shape[0]), dtype=float)
+    fitted_mu_a = np.zeros((Y.shape[0], N), dtype=float)
+    for i in range(Y.shape[0]):
+        ok = valid_flat[i]
+        if np.any(ok):
+            X[:, i], _ = nnls(E[ok, :], Y[i, ok])
+        fitted_mu_a[i, :] = E @ X[:, i]
+
+    fitted_reflectance = _welch_reflectance(
+        fitted_mu_a.reshape(H, W, N),
+        mu_s_prime=mus_prime,
+        anisotropy_g=float(anisotropy_g),
+        n_tissue=float(n_tissue),
+        n_out=float(n_out),
+        eps=eps,
+    )
+    fitted_od = -np.log10(np.clip(fitted_reflectance, eps, None))
+
+    concentrations = X.T.reshape(H, W, n_components)
+    residual_per_pixel = np.asarray(od_cube, dtype=float) - fitted_od
+    rmse_map = np.sqrt(np.mean(residual_per_pixel ** 2, axis=2))
+    return concentrations, rmse_map, fitted_od
 
 
 # ---------------------------------------------------------------------------

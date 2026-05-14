@@ -68,6 +68,10 @@ BG_SLOPE_START_LABEL_OBJECT_NAME: str = "bg_slope_start_label"
 BG_SLOPE_START_ENTRY_OBJECT_NAME: str = "bg_slope_start_entry"
 BG_SLOPE_END_LABEL_OBJECT_NAME: str = "bg_slope_end_label"
 BG_SLOPE_END_ENTRY_OBJECT_NAME: str = "bg_slope_end_entry"
+BG_SCATTERING_LAMBDA0_LABEL_OBJECT_NAME: str = "bg_scattering_lambda0_label"
+BG_SCATTERING_LAMBDA0_ENTRY_OBJECT_NAME: str = "bg_scattering_lambda0_entry"
+BG_SCATTERING_B_LABEL_OBJECT_NAME: str = "bg_scattering_b_label"
+BG_SCATTERING_B_ENTRY_OBJECT_NAME: str = "bg_scattering_b_entry"
 RUN_BTN_OBJECT_NAME: str = "run_btn"
 SAVE_BTN_OBJECT_NAME: str = "save_btn"
 PROGRESS_BAR_OBJECT_NAME: str = "progress_bar"
@@ -103,6 +107,18 @@ ITERATIVE_INITIAL_CONC_LABEL_OBJECT_NAME: str = "iterative_initial_conc_label"
 ITERATIVE_INITIAL_CONC_ENTRY_OBJECT_NAME: str = "iterative_initial_conc_entry"
 ITERATIVE_RESET_BTN_OBJECT_NAME: str = "iterative_reset_btn"
 ITERATIVE_ADVANCED_TOOLBAR_OBJECT_NAME: str = "iterative_advanced_toolbar"
+DIFFUSION_TOOLBAR_OBJECT_NAME: str = "diffusion_toolbar"
+DIFFUSION_TITLE_OBJECT_NAME: str = "diffusion_title"
+DIFFUSION_N_TISSUE_LABEL_OBJECT_NAME: str = "diffusion_n_tissue_label"
+DIFFUSION_N_TISSUE_ENTRY_OBJECT_NAME: str = "diffusion_n_tissue_entry"
+DIFFUSION_N_OUT_LABEL_OBJECT_NAME: str = "diffusion_n_out_label"
+DIFFUSION_N_OUT_ENTRY_OBJECT_NAME: str = "diffusion_n_out_entry"
+DIFFUSION_MU_A_MIN_LABEL_OBJECT_NAME: str = "diffusion_mu_a_min_label"
+DIFFUSION_MU_A_MIN_ENTRY_OBJECT_NAME: str = "diffusion_mu_a_min_entry"
+DIFFUSION_MU_A_MAX_LABEL_OBJECT_NAME: str = "diffusion_mu_a_max_label"
+DIFFUSION_MU_A_MAX_ENTRY_OBJECT_NAME: str = "diffusion_mu_a_max_entry"
+DIFFUSION_N_GRID_LABEL_OBJECT_NAME: str = "diffusion_n_grid_label"
+DIFFUSION_N_GRID_ENTRY_OBJECT_NAME: str = "diffusion_n_grid_entry"
 
 
 # ---------------------------------------------------------------------------
@@ -166,10 +182,17 @@ class SpectralUnmixingMainWindow:
         self._background_slope_end_label_action: Any = None
         self._background_slope_end_help_action: Any = None
         self._background_slope_end_entry_action: Any = None
+        self._background_scattering_lambda0_label_action: Any = None
+        self._background_scattering_lambda0_help_action: Any = None
+        self._background_scattering_lambda0_entry_action: Any = None
+        self._background_scattering_b_label_action: Any = None
+        self._background_scattering_b_help_action: Any = None
+        self._background_scattering_b_entry_action: Any = None
         self._bg_value: float = 2500.0
         self._background_params: Dict[str, float | str] = self._default_background_parameters()
         self._scattering_params: Dict[str, float] = self._default_scattering_parameters()
         self._iterative_params: Dict[str, float | int] = self._default_iterative_parameters()
+        self._diffusion_params: Dict[str, float | int] = self._default_diffusion_parameters()
         self._theme_mode: str = "system"
         self._theme_name: str = self._resolve_theme_name("system")
         self._help_labels: list[Any] = []
@@ -288,6 +311,9 @@ class SpectralUnmixingMainWindow:
         scattering_advanced_toolbar = self._build_scattering_advanced_toolbar(self._impl)
         self._impl.addToolBarBreak(Qt.TopToolBarArea)
         self._impl.addToolBar(Qt.TopToolBarArea, scattering_advanced_toolbar)
+        diffusion_toolbar = self._build_diffusion_toolbar(self._impl)
+        self._impl.addToolBarBreak(Qt.TopToolBarArea)
+        self._impl.addToolBar(Qt.TopToolBarArea, diffusion_toolbar)
         iterative_toolbar = self._build_iterative_toolbar(self._impl)
         self._impl.addToolBarBreak(Qt.TopToolBarArea)
         self._impl.addToolBar(Qt.TopToolBarArea, iterative_toolbar)
@@ -377,7 +403,7 @@ class SpectralUnmixingMainWindow:
         solver_combo = QComboBox(toolbar)
         solver_combo.setObjectName(SOLVER_COMBO_OBJECT_NAME)
         solver_combo.setEditable(False)
-        solver_combo.addItems(["ls", "nnls", "mu_a", "iterative"])
+        solver_combo.addItems(["ls", "nnls", "mu_a", "diffusion", "iterative"])
         solver_combo.setCurrentIndex(0)
         solver_combo.currentTextChanged.connect(self._on_solver_method_changed)
         toolbar.addWidget(solver_combo)
@@ -466,10 +492,11 @@ class SpectralUnmixingMainWindow:
         bg_model_combo.setToolTip(
             "Choose constant for a wavelength-independent background column, "
             "exponential for a curved wavelength-dependent basis, "
-            "or slope for a linear start-to-end basis."
+            "slope for a linear start-to-end basis, "
+            "or scattering for a power-law λ^-b nuisance basis."
         )
         bg_model_combo.setEditable(False)
-        bg_model_combo.addItems(["constant", "exponential", "slope"])
+        bg_model_combo.addItems(["constant", "exponential", "slope", "scattering"])
         bg_model_combo.setCurrentText(str(self._background_params["model"]))
         bg_model_combo.currentTextChanged.connect(self._on_background_model_changed)
         self._background_model_action = toolbar.addWidget(bg_model_combo)
@@ -477,7 +504,8 @@ class SpectralUnmixingMainWindow:
             toolbar,
             "Background model. Constant uses one value at every LED band. "
             "Exponential uses a curved wavelength-dependent nuisance basis controlled by start, end, shape, and offset. "
-            "Slope linearly interpolates between start and end values across the wavelength range.",
+            "Slope linearly interpolates between start and end values across the wavelength range. "
+            "Scattering uses a power-law λ^-b shape normalized at lambda0.",
             f"{BG_MODEL_COMBO_OBJECT_NAME}_help",
         ))
 
@@ -606,6 +634,44 @@ class SpectralUnmixingMainWindow:
         )
         self._background_slope_end_entry_action = toolbar.addWidget(bg_slope_end_entry)
 
+        bg_scattering_lambda0_label = QLabel("lambda0 (nm):", toolbar)
+        bg_scattering_lambda0_label.setObjectName(BG_SCATTERING_LAMBDA0_LABEL_OBJECT_NAME)
+        self._background_scattering_lambda0_label_action = toolbar.addWidget(bg_scattering_lambda0_label)
+        self._background_scattering_lambda0_help_action = toolbar.addWidget(self._make_help_label(
+            toolbar,
+            "Reference wavelength for scattering-shaped background basis (λ/lambda0)^(-b).",
+            f"{BG_SCATTERING_LAMBDA0_LABEL_OBJECT_NAME}_help",
+        ))
+
+        bg_scattering_lambda0_entry = QLineEdit(toolbar)
+        bg_scattering_lambda0_entry.setObjectName(BG_SCATTERING_LAMBDA0_ENTRY_OBJECT_NAME)
+        bg_scattering_lambda0_entry.setText(str(self._background_params["scattering_lambda0_nm"]))
+        bg_scattering_lambda0_entry.setMaximumWidth(72)
+        bg_scattering_lambda0_entry.setAlignment(Qt.AlignmentFlag.AlignRight)
+        bg_scattering_lambda0_entry.editingFinished.connect(
+            partial(self._on_background_exp_editing_finished, "scattering_lambda0_nm")
+        )
+        self._background_scattering_lambda0_entry_action = toolbar.addWidget(bg_scattering_lambda0_entry)
+
+        bg_scattering_b_label = QLabel("b:", toolbar)
+        bg_scattering_b_label.setObjectName(BG_SCATTERING_B_LABEL_OBJECT_NAME)
+        self._background_scattering_b_label_action = toolbar.addWidget(bg_scattering_b_label)
+        self._background_scattering_b_help_action = toolbar.addWidget(self._make_help_label(
+            toolbar,
+            "Power-law exponent for scattering-shaped background basis. Larger values decrease faster at longer wavelengths.",
+            f"{BG_SCATTERING_B_LABEL_OBJECT_NAME}_help",
+        ))
+
+        bg_scattering_b_entry = QLineEdit(toolbar)
+        bg_scattering_b_entry.setObjectName(BG_SCATTERING_B_ENTRY_OBJECT_NAME)
+        bg_scattering_b_entry.setText(str(self._background_params["scattering_power_b"]))
+        bg_scattering_b_entry.setMaximumWidth(72)
+        bg_scattering_b_entry.setAlignment(Qt.AlignmentFlag.AlignRight)
+        bg_scattering_b_entry.editingFinished.connect(
+            partial(self._on_background_exp_editing_finished, "scattering_power_b")
+        )
+        self._background_scattering_b_entry_action = toolbar.addWidget(bg_scattering_b_entry)
+
         self._set_background_model_controls(str(self._background_params["model"]))
 
         return toolbar
@@ -718,6 +784,77 @@ class SpectralUnmixingMainWindow:
             entry.setMaximumWidth(88)
             entry.setAlignment(Qt.AlignmentFlag.AlignRight)
             entry.editingFinished.connect(partial(self._on_scattering_editing_finished, key))
+            toolbar.addWidget(entry)
+
+        return toolbar
+
+    def _build_diffusion_toolbar(self, parent: Any):
+        """Construct a toolbar row for the Welch diffusion solver parameters."""
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QLabel, QLineEdit, QToolBar
+
+        toolbar = QToolBar("Diffusion Toolbar", parent)
+        toolbar.setObjectName(DIFFUSION_TOOLBAR_OBJECT_NAME)
+        toolbar.setMovable(False)
+        toolbar.setFloatable(False)
+        toolbar.setAllowedAreas(Qt.ToolBarArea.TopToolBarArea)
+        toolbar.setVisible(False)
+
+        title = QLabel("Diffusion (Welch):", toolbar)
+        title.setObjectName(DIFFUSION_TITLE_OBJECT_NAME)
+        title.setStyleSheet("font-weight: 600;")
+        toolbar.addWidget(title)
+
+        fields = [
+            (
+                "n_tissue:",
+                DIFFUSION_N_TISSUE_LABEL_OBJECT_NAME,
+                DIFFUSION_N_TISSUE_ENTRY_OBJECT_NAME,
+                "n_tissue",
+                "Tissue refractive index used by the mismatched-boundary condition (e.g. 1.4).",
+            ),
+            (
+                "n_out:",
+                DIFFUSION_N_OUT_LABEL_OBJECT_NAME,
+                DIFFUSION_N_OUT_ENTRY_OBJECT_NAME,
+                "n_out",
+                "Outside refractive index (e.g. 1.0 for air).",
+            ),
+            (
+                "mu_a min (1/mm):",
+                DIFFUSION_MU_A_MIN_LABEL_OBJECT_NAME,
+                DIFFUSION_MU_A_MIN_ENTRY_OBJECT_NAME,
+                "mu_a_min",
+                "Lower bound for absorption inversion. Smaller values cover weaker absorbers but can reduce numeric stability.",
+            ),
+            (
+                "mu_a max (1/mm):",
+                DIFFUSION_MU_A_MAX_LABEL_OBJECT_NAME,
+                DIFFUSION_MU_A_MAX_ENTRY_OBJECT_NAME,
+                "mu_a_max",
+                "Upper bound for absorption inversion. Larger values cover stronger absorbers but make the lookup wider.",
+            ),
+            (
+                "n_grid:",
+                DIFFUSION_N_GRID_LABEL_OBJECT_NAME,
+                DIFFUSION_N_GRID_ENTRY_OBJECT_NAME,
+                "n_grid",
+                "Number of mu_a grid points used in the per-band lookup table for Welch inversion. Higher = more accurate, slower.",
+            ),
+        ]
+
+        for label_text, label_name, entry_name, key, tooltip in fields:
+            label = QLabel(label_text, toolbar)
+            label.setObjectName(label_name)
+            toolbar.addWidget(label)
+            toolbar.addWidget(self._make_help_label(toolbar, tooltip, f"{label_name}_help"))
+
+            entry = QLineEdit(toolbar)
+            entry.setObjectName(entry_name)
+            entry.setText(str(self._diffusion_params[key]))
+            entry.setMaximumWidth(92)
+            entry.setAlignment(Qt.AlignmentFlag.AlignRight)
+            entry.editingFinished.connect(partial(self._on_diffusion_editing_finished, key))
             toolbar.addWidget(entry)
 
         return toolbar
@@ -1421,10 +1558,11 @@ class SpectralUnmixingMainWindow:
 
         solver_method = solver_combo.currentText() if solver_combo is not None else "ls"
         use_fixed_scattering = self._uses_fixed_scattering_solver(solver_method)
-        supports_background = solver_method != "mu_a"
+        supports_background = solver_method not in {"mu_a", "diffusion"}
         background_parameters = None
         scattering_parameters = None
         iterative_parameters = None
+        diffusion_parameters = None
 
         if supports_background:
             try:
@@ -1445,11 +1583,16 @@ class SpectralUnmixingMainWindow:
                     iterative_parameters = self._read_iterative_params_from_ui()
                 except (TypeError, ValueError) as exc:
                     raise ValueError(f"Invalid iterative solver parameters: {exc}") from exc
+            if solver_method == "diffusion":
+                try:
+                    diffusion_parameters = self._read_diffusion_params_from_ui()
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(f"Invalid diffusion parameters: {exc}") from exc
 
         selected = self.get_selection(include_background=True)
         include_background = "Background" in selected
         selected_chroms = [name for name in selected if name != "Background"]
-        if solver_method == "mu_a":
+        if solver_method in {"mu_a", "diffusion"}:
             include_background = False
             if not selected_chroms:
                 raise ValueError(
@@ -1467,6 +1610,7 @@ class SpectralUnmixingMainWindow:
             "background_parameters": background_parameters,
             "scattering_parameters": scattering_parameters,
             "iterative_parameters": iterative_parameters,
+            "diffusion_parameters": diffusion_parameters,
             "include_background": include_background,
             "selected_chromophores": selected_chroms,
         }
@@ -1492,7 +1636,7 @@ class SpectralUnmixingMainWindow:
             pen_wl, pen_depth = loader.load_penetration_depth(data_dir)
 
             mus_prime = None
-            if snapshot["solver_method"] == "mu_a":
+            if snapshot["solver_method"] in {"mu_a", "diffusion"}:
                 A, chrom_names = processing.build_absorption_matrix(
                     led_wl,
                     led_em,
@@ -1584,6 +1728,7 @@ class SpectralUnmixingMainWindow:
                         A,
                         method=snapshot["solver_method"],
                         mus_prime=mus_prime,
+                        diffusion_parameters=snapshot.get("diffusion_parameters"),
                     )
                 derived = processing.compute_derived_maps(concentrations, chrom_names)
                 diagnostics = processing.compute_diagnostics(
@@ -1683,9 +1828,16 @@ class SpectralUnmixingMainWindow:
         return processing.get_default_iterative_solver_parameters()
 
     @staticmethod
+    def _default_diffusion_parameters() -> Dict[str, float | int]:
+        """Return the default Welch diffusion parameter set."""
+        from app.core import processing
+
+        return processing.get_default_diffusion_parameters()
+
+    @staticmethod
     def _uses_fixed_scattering_solver(solver_method: str) -> bool:
         """Return True when a solver uses the fixed-scattering controls."""
-        return solver_method in {"mu_a", "iterative"}
+        return solver_method in {"mu_a", "diffusion", "iterative"}
 
     @staticmethod
     def _scattering_entry_specs() -> tuple[tuple[str, str, str], ...]:
@@ -1722,6 +1874,8 @@ class SpectralUnmixingMainWindow:
         exp_offset_entry = self._impl.findChild(QLineEdit, BG_EXP_OFFSET_ENTRY_OBJECT_NAME)
         slope_start_entry = self._impl.findChild(QLineEdit, BG_SLOPE_START_ENTRY_OBJECT_NAME)
         slope_end_entry = self._impl.findChild(QLineEdit, BG_SLOPE_END_ENTRY_OBJECT_NAME)
+        scattering_lambda0_entry = self._impl.findChild(QLineEdit, BG_SCATTERING_LAMBDA0_ENTRY_OBJECT_NAME)
+        scattering_b_entry = self._impl.findChild(QLineEdit, BG_SCATTERING_B_ENTRY_OBJECT_NAME)
 
         model = model_combo.currentText() if model_combo is not None else self._background_params["model"]
         raw_params = {
@@ -1733,6 +1887,8 @@ class SpectralUnmixingMainWindow:
             "exp_offset": self._background_params["exp_offset"],
             "slope_start": self._background_params["slope_start"],
             "slope_end": self._background_params["slope_end"],
+            "scattering_lambda0_nm": self._background_params["scattering_lambda0_nm"],
+            "scattering_power_b": self._background_params["scattering_power_b"],
         }
         if model == "exponential":
             raw_params["exp_start"] = (
@@ -1766,6 +1922,17 @@ class SpectralUnmixingMainWindow:
                 if slope_end_entry is not None
                 else self._background_params["slope_end"]
             )
+        elif model == "scattering":
+            raw_params["scattering_lambda0_nm"] = (
+                scattering_lambda0_entry.text().strip()
+                if scattering_lambda0_entry is not None
+                else self._background_params["scattering_lambda0_nm"]
+            )
+            raw_params["scattering_power_b"] = (
+                scattering_b_entry.text().strip()
+                if scattering_b_entry is not None
+                else self._background_params["scattering_power_b"]
+            )
 
         validated = processing.validate_background_parameters(raw_params)
         self._background_params = validated
@@ -1782,6 +1949,7 @@ class SpectralUnmixingMainWindow:
             model = str(self._background_params.get("model", "constant"))
         use_exponential = model == "exponential"
         use_slope = model == "slope"
+        use_scattering = model == "scattering"
 
         if self._background_label_action is not None:
             self._background_label_action.setVisible(background_enabled)
@@ -1791,10 +1959,11 @@ class SpectralUnmixingMainWindow:
             self._background_model_action.setVisible(background_enabled)
         if self._background_model_help_action is not None:
             self._background_model_help_action.setVisible(background_enabled)
+        show_constant_entry = background_enabled and (not use_exponential) and (not use_slope) and (not use_scattering)
         if self._background_entry_action is not None:
-            self._background_entry_action.setVisible(background_enabled and not use_exponential and not use_slope)
+            self._background_entry_action.setVisible(show_constant_entry)
         if self._background_entry_help_action is not None:
-            self._background_entry_help_action.setVisible(background_enabled and not use_exponential and not use_slope)
+            self._background_entry_help_action.setVisible(show_constant_entry)
 
         exp_visible = background_enabled and use_exponential
         for action in (
@@ -1826,6 +1995,18 @@ class SpectralUnmixingMainWindow:
             if action is not None:
                 action.setVisible(slope_visible)
 
+        scattering_visible = background_enabled and use_scattering
+        for action in (
+            self._background_scattering_lambda0_label_action,
+            self._background_scattering_lambda0_help_action,
+            self._background_scattering_lambda0_entry_action,
+            self._background_scattering_b_label_action,
+            self._background_scattering_b_help_action,
+            self._background_scattering_b_entry_action,
+        ):
+            if action is not None:
+                action.setVisible(scattering_visible)
+
     def _read_scattering_params_from_ui(self) -> Dict[str, float]:
         """Read, validate, and cache scattering parameters from toolbar entries."""
         from PySide6.QtWidgets import QLineEdit
@@ -1854,17 +2035,41 @@ class SpectralUnmixingMainWindow:
         self._iterative_params = validated
         return dict(validated)
 
+    def _read_diffusion_params_from_ui(self) -> Dict[str, float | int]:
+        """Read, validate, and cache Welch diffusion parameters from toolbar entries."""
+        from PySide6.QtWidgets import QLineEdit
+        from app.core import processing
+
+        entry_map = {
+            "n_tissue": DIFFUSION_N_TISSUE_ENTRY_OBJECT_NAME,
+            "n_out": DIFFUSION_N_OUT_ENTRY_OBJECT_NAME,
+            "mu_a_min": DIFFUSION_MU_A_MIN_ENTRY_OBJECT_NAME,
+            "mu_a_max": DIFFUSION_MU_A_MAX_ENTRY_OBJECT_NAME,
+            "n_grid": DIFFUSION_N_GRID_ENTRY_OBJECT_NAME,
+        }
+
+        raw_params: Dict[str, float | int] = dict(self._diffusion_params)
+        for key, object_name in entry_map.items():
+            entry = self._impl.findChild(QLineEdit, object_name)
+            raw_params[key] = entry.text().strip() if entry is not None else raw_params[key]
+
+        validated = processing.validate_diffusion_parameters(raw_params)
+        self._diffusion_params = validated
+        return dict(validated)
+
     def _set_solver_dependent_controls(self, solver_method: str) -> None:
         """Toggle background vs fixed-scattering controls based on solver."""
         from PySide6.QtWidgets import QToolBar
 
         use_fixed_scattering = self._uses_fixed_scattering_solver(solver_method)
         use_iterative_controls = solver_method == "iterative"
-        use_background_controls = solver_method != "mu_a"
+        use_background_controls = solver_method not in {"mu_a", "diffusion"}
+        use_diffusion_controls = solver_method == "diffusion"
 
         background_toolbar = self._impl.findChild(QToolBar, BACKGROUND_TOOLBAR_OBJECT_NAME)
         scattering_toolbar = self._impl.findChild(QToolBar, SCATTERING_TOOLBAR_OBJECT_NAME)
         scattering_advanced_toolbar = self._impl.findChild(QToolBar, SCATTERING_ADVANCED_TOOLBAR_OBJECT_NAME)
+        diffusion_toolbar = self._impl.findChild(QToolBar, DIFFUSION_TOOLBAR_OBJECT_NAME)
         iterative_toolbar = self._impl.findChild(QToolBar, ITERATIVE_TOOLBAR_OBJECT_NAME)
         iterative_advanced_toolbar = self._impl.findChild(QToolBar, ITERATIVE_ADVANCED_TOOLBAR_OBJECT_NAME)
 
@@ -1875,6 +2080,8 @@ class SpectralUnmixingMainWindow:
             scattering_toolbar.setVisible(use_fixed_scattering)
         if scattering_advanced_toolbar is not None:
             scattering_advanced_toolbar.setVisible(use_fixed_scattering)
+        if diffusion_toolbar is not None:
+            diffusion_toolbar.setVisible(use_diffusion_controls)
         if iterative_toolbar is not None:
             iterative_toolbar.setVisible(use_iterative_controls)
         if iterative_advanced_toolbar is not None:
@@ -2033,6 +2240,44 @@ class SpectralUnmixingMainWindow:
             params = self._read_iterative_params_from_ui()
         except (TypeError, ValueError) as exc:
             entry.setText(str(self._iterative_params[key]))
+            if status_label is not None:
+                status_label.setText(f"Invalid {label_map[key]}: {exc}")
+            return
+
+        value = params[key]
+        entry.setText(str(value))
+        if status_label is not None and value != previous:
+            status_label.setText(f"{label_map[key]} = {value}")
+
+    def _on_diffusion_editing_finished(self, key: str) -> None:
+        """Validate one diffusion entry while preserving the rest of the config."""
+        from PySide6.QtWidgets import QLineEdit, QLabel
+
+        entry_map = {
+            "n_tissue": DIFFUSION_N_TISSUE_ENTRY_OBJECT_NAME,
+            "n_out": DIFFUSION_N_OUT_ENTRY_OBJECT_NAME,
+            "mu_a_min": DIFFUSION_MU_A_MIN_ENTRY_OBJECT_NAME,
+            "mu_a_max": DIFFUSION_MU_A_MAX_ENTRY_OBJECT_NAME,
+            "n_grid": DIFFUSION_N_GRID_ENTRY_OBJECT_NAME,
+        }
+        label_map = {
+            "n_tissue": "n_tissue",
+            "n_out": "n_out",
+            "mu_a_min": "mu_a_min",
+            "mu_a_max": "mu_a_max",
+            "n_grid": "n_grid",
+        }
+
+        entry = self._impl.findChild(QLineEdit, entry_map[key])
+        status_label = self._impl.findChild(QLabel, STATUS_LABEL_OBJECT_NAME)
+        if entry is None:
+            return
+
+        previous = self._diffusion_params[key]
+        try:
+            params = self._read_diffusion_params_from_ui()
+        except (TypeError, ValueError) as exc:
+            entry.setText(str(self._diffusion_params[key]))
             if status_label is not None:
                 status_label.setText(f"Invalid {label_map[key]}: {exc}")
             return
