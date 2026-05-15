@@ -92,6 +92,7 @@ SCATTERING_LIPOFUNDIN_LABEL_OBJECT_NAME: str = "scattering_lipofundin_label"
 SCATTERING_LIPOFUNDIN_ENTRY_OBJECT_NAME: str = "scattering_lipofundin_entry"
 SCATTERING_ANISOTROPY_LABEL_OBJECT_NAME: str = "scattering_anisotropy_label"
 SCATTERING_ANISOTROPY_ENTRY_OBJECT_NAME: str = "scattering_anisotropy_entry"
+CHROMOPHORE_LN10_CHECK_OBJECT_NAME: str = "chromophore_ln10_check"
 SCATTERING_ADVANCED_TOOLBAR_OBJECT_NAME: str = "scattering_advanced_toolbar"
 ITERATIVE_TOOLBAR_OBJECT_NAME: str = "iterative_toolbar"
 ITERATIVE_TITLE_OBJECT_NAME: str = "iterative_title"
@@ -193,6 +194,7 @@ class SpectralUnmixingMainWindow:
         self._scattering_params: Dict[str, float] = self._default_scattering_parameters()
         self._iterative_params: Dict[str, float | int] = self._default_iterative_parameters()
         self._diffusion_params: Dict[str, float | int] = self._default_diffusion_parameters()
+        self._chromophore_ln10_enabled: bool = False
         self._theme_mode: str = "system"
         self._theme_name: str = self._resolve_theme_name("system")
         self._help_labels: list[Any] = []
@@ -679,7 +681,7 @@ class SpectralUnmixingMainWindow:
     def _build_scattering_toolbar(self, parent: Any):
         """Construct a secondary toolbar with fixed-scattering controls."""
         from PySide6.QtCore import Qt
-        from PySide6.QtWidgets import QLabel, QLineEdit, QToolBar
+        from PySide6.QtWidgets import QCheckBox, QLabel, QLineEdit, QToolBar
 
         toolbar = QToolBar("Scattering Toolbar", parent)
         toolbar.setObjectName(SCATTERING_TOOLBAR_OBJECT_NAME)
@@ -734,6 +736,22 @@ class SpectralUnmixingMainWindow:
             entry.setAlignment(Qt.AlignmentFlag.AlignRight)
             entry.editingFinished.connect(partial(self._on_scattering_editing_finished, key))
             toolbar.addWidget(entry)
+
+        ln10_check = QCheckBox("×ln(10) chrom", toolbar)
+        ln10_check.setObjectName(CHROMOPHORE_LN10_CHECK_OBJECT_NAME)
+        ln10_check.setChecked(bool(self._chromophore_ln10_enabled))
+        ln10_check.setToolTip(
+            "Experimental toggle. Multiply chromophore spectra by ln(10) when building the "
+            "absorption basis for mu_a/diffusion solvers."
+        )
+        ln10_check.stateChanged.connect(self._on_chromophore_ln10_changed)
+        toolbar.addWidget(ln10_check)
+        toolbar.addWidget(self._make_help_label(
+            toolbar,
+            "Enable this if chromophore spectra were derived from decadic absorbance (log10) "
+            "but the solver expects napierian absorption μa.",
+            f"{CHROMOPHORE_LN10_CHECK_OBJECT_NAME}_help",
+        ))
 
         return toolbar
 
@@ -791,7 +809,7 @@ class SpectralUnmixingMainWindow:
     def _build_diffusion_toolbar(self, parent: Any):
         """Construct a toolbar row for the Welch diffusion solver parameters."""
         from PySide6.QtCore import Qt
-        from PySide6.QtWidgets import QLabel, QLineEdit, QToolBar
+        from PySide6.QtWidgets import QCheckBox, QLabel, QLineEdit, QToolBar
 
         toolbar = QToolBar("Diffusion Toolbar", parent)
         toolbar.setObjectName(DIFFUSION_TOOLBAR_OBJECT_NAME)
@@ -1611,6 +1629,7 @@ class SpectralUnmixingMainWindow:
             "scattering_parameters": scattering_parameters,
             "iterative_parameters": iterative_parameters,
             "diffusion_parameters": diffusion_parameters,
+            "chromophore_ln10_enabled": bool(self._chromophore_ln10_enabled),
             "include_background": include_background,
             "selected_chromophores": selected_chroms,
         }
@@ -1637,12 +1656,14 @@ class SpectralUnmixingMainWindow:
 
             mus_prime = None
             if snapshot["solver_method"] in {"mu_a", "diffusion"}:
+                chrom_scale = processing.LN10 if snapshot.get("chromophore_ln10_enabled") else 1.0
                 A, chrom_names = processing.build_absorption_matrix(
                     led_wl,
                     led_em,
                     chrom_spectra,
                     wls,
                     chromophore_names=snapshot["selected_chromophores"],
+                    chromophore_scale=chrom_scale,
                 )
                 mus_prime = processing.build_fixed_scattering_profile(
                     led_wl,
@@ -2248,6 +2269,18 @@ class SpectralUnmixingMainWindow:
         entry.setText(str(value))
         if status_label is not None and value != previous:
             status_label.setText(f"{label_map[key]} = {value}")
+
+    def _on_chromophore_ln10_changed(self, state: int) -> None:
+        """Cache chromophore ln(10) toggle used for absorption-matrix solvers."""
+        from PySide6.QtWidgets import QLabel
+
+        enabled = bool(state)
+        previous = bool(self._chromophore_ln10_enabled)
+        self._chromophore_ln10_enabled = enabled
+
+        status_label = self._impl.findChild(QLabel, STATUS_LABEL_OBJECT_NAME)
+        if status_label is not None and enabled != previous:
+            status_label.setText(f"Chromophore ln(10) scaling = {enabled}")
 
     def _on_diffusion_editing_finished(self, key: str) -> None:
         """Validate one diffusion entry while preserving the rest of the config."""

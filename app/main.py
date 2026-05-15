@@ -13,7 +13,7 @@ This release launches the PySide6 interface only.
 from __future__ import annotations
 
 import argparse
-import importlib
+import importlibapp\main.py
 import importlib.util
 import os
 import sys

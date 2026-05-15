@@ -11,6 +11,7 @@ from scipy.optimize import nnls
 
 
 SUPPORTED_UNMIXING_METHODS: tuple[str, ...] = ("ls", "nnls", "mu_a", "diffusion")
+LN10: float = float(np.log(10.0))
 
 # Fixed scattering prior used by the mu_a inversion solver.
 SCATTERING_REFERENCE_WAVELENGTH_NM: float = 500.0
@@ -619,6 +620,7 @@ def build_absorption_matrix(
     chromophore_spectra: dict,
     led_wavelengths: list,
     chromophore_names: list = None,
+    chromophore_scale: float = 1.0,
 ) -> tuple:
     """
     Build the band-averaged absorption basis E ∈ R^{N_LED × N_chromophores}.
@@ -632,6 +634,10 @@ def build_absorption_matrix(
         led_emission,
         led_wavelengths,
     )
+    chromophore_scale = float(chromophore_scale)
+    if not np.isfinite(chromophore_scale) or chromophore_scale <= 0:
+        raise ValueError("chromophore_scale must be a finite number > 0.")
+
     chromophore_names, chrom_interp = _interpolate_chromophore_spectra(
         common_wl,
         chromophore_spectra,
@@ -641,7 +647,7 @@ def build_absorption_matrix(
     E = np.zeros((len(led_wavelengths), len(chromophore_names)))
     for i, phi in enumerate(led_profiles):
         for j, name in enumerate(chromophore_names):
-            E[i, j] = np.trapezoid(phi * chrom_interp[name], common_wl)
+            E[i, j] = chromophore_scale * np.trapezoid(phi * chrom_interp[name], common_wl)
 
     return E, chromophore_names
 
