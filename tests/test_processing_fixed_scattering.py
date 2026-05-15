@@ -519,5 +519,205 @@ class TestFixedScatteringSolver(unittest.TestCase):
         self.assertAlmostEqual(solver_info["returned_mean_rmse"], 0.05)
 
 
+class TestValidationHardening(unittest.TestCase):
+    """Targeted tests for core validation/fallback hardening."""
+
+    # --- compute_reflectance shape validation ---------------------------------
+
+    def test_reflectance_rejects_2d_input(self):
+        sample = np.ones((10, 10))
+        ref = np.ones((10, 10))
+        dark = np.ones((10, 10))
+        with self.assertRaises(ValueError):
+            processing.compute_reflectance(sample, ref, dark)
+
+    def test_reflectance_rejects_shape_mismatch(self):
+        sample = np.ones((10, 10, 3))
+        ref = np.ones((10, 8, 3))
+        dark = np.ones((10, 10, 3))
+        with self.assertRaises(ValueError):
+            processing.compute_reflectance(sample, ref, dark)
+
+    def test_reflectance_rejects_zero_bands(self):
+        sample = np.ones((10, 10, 0))
+        ref = np.ones((10, 10, 0))
+        dark = np.ones((10, 10, 0))
+        with self.assertRaises(ValueError):
+            processing.compute_reflectance(sample, ref, dark)
+
+    def test_reflectance_accepts_valid_cubes(self):
+        sample = np.ones((4, 5, 3))
+        ref = np.ones((4, 5, 3))
+        dark = np.ones((4, 5, 3))
+        result = processing.compute_reflectance(sample, ref, dark)
+        self.assertEqual(result.shape, (4, 5, 3))
+        self.assertTrue(np.all(np.isfinite(result)))
+
+    # --- LED profile validation -----------------------------------------------
+
+    def test_led_profile_missing_key_raises_keyerror(self):
+        led_emission_wl = np.array([500.0, 600.0])
+        led_emission = {500: np.array([1.0, 0.0])}
+        with self.assertRaises(KeyError):
+            processing._normalized_led_profiles(
+                led_emission_wl,
+                led_emission,
+                [500, 600],
+            )
+
+    def test_led_profile_zero_area_warns(self):
+        import logging
+        led_emission_wl = np.array([500.0, 600.0])
+        led_emission = {500: np.array([0.0, 0.0])}
+        with self.assertLogs("app.core.processing", level="WARNING") as cm:
+            processing._normalized_led_profiles(
+                led_emission_wl,
+                led_emission,
+                [500],
+            )
+        self.assertTrue(any("zero or negative area" in msg for msg in cm.output))
+
+    # --- Penetration depth validation -----------------------------------------
+
+    def test_penetration_depth_nonfinite_raises(self):
+        common_wl = np.array([500.0, 600.0])
+        led_emission = {
+            500: np.array([1.0, 0.0]),
+            600: np.array([0.0, 1.0]),
+        }
+        penetration_wl = np.array([500.0, 600.0])
+        penetration_depth = np.array([1.0, np.nan])
+        with self.assertRaises(ValueError):
+            processing.build_overlap_matrix(
+                common_wl,
+                led_emission,
+                {},
+                penetration_wl,
+                penetration_depth,
+                led_wavelengths=[500, 600],
+                chromophore_names=[],
+                include_background=True,
+            )
+
+    def test_penetration_depth_length_mismatch_raises(self):
+        common_wl = np.array([500.0, 600.0])
+        led_emission = {
+            500: np.array([1.0, 0.0]),
+            600: np.array([0.0, 1.0]),
+        }
+        penetration_wl = np.array([500.0, 600.0])
+        penetration_depth = np.array([1.0])
+        with self.assertRaises(ValueError):
+            processing.build_overlap_matrix(
+                common_wl,
+                led_emission,
+                {},
+                penetration_wl,
+                penetration_depth,
+                led_wavelengths=[500, 600],
+                chromophore_names=[],
+                include_background=True,
+            )
+
+    # --- nan_to_num warning ---------------------------------------------------
+
+    def test_fixed_scattering_spectrum_warns_on_nonfinite(self):
+        import logging
+        # power_b is not validated for sign; a large negative value overflows
+        # the power-law computation, producing inf values that trigger the warning.
+        with self.assertLogs("app.core.processing", level="WARNING") as cm:
+            processing.build_fixed_scattering_spectrum(
+                np.array([500.0]),
+                lambda0_nm=1.0,
+                power_b=-1000.0,  # causes (wl/lambda0)^power_b to overflow → inf
+            )
+        self.assertTrue(any("non-finite" in msg for msg in cm.output))
+
+    # --- Iterative solver fallback hardening ---------------------------------
+
+    def test_iterative_solver_error_with_best_iterate_falls_back_cleanly(self):
+        """If an error occurs after at least one successful iterate, the best
+        iterate is used and the solver_info records the fallback."""
+        od_cube = np.ones((1, 1, 2), dtype=float)
+        static_A = np.array([[1.0, 0.0], [0.0, 1.0]], dtype=float)
+        common_wl = np.array([500.0, 600.0], dtype=float)
+        led_emission = {
+            500: np.array([1.0, 0.0], dtype=float),
+            600: np.array([0.0, 1.0], dtype=float),
+        }
+        chromophore_spectra = {
+            "X": (common_wl, np.array([1.0, 2.0], dtype=float)),
+        }
+
+        # _solve_unmixing_nnls succeeds once then raises.
+        ok_concs = np.array([[[0.3, 0.7]]], dtype=float)
+        ok_rmse = np.array([[0.1]], dtype=float)
+        ok_fitted = np.array([[[0.3, 0.7]]], dtype=float)
+
+        side_effect = [
+            (ok_concs, ok_rmse, ok_fitted),
+            ValueError("simulated failure"),
+        ]
+
+        with mock.patch.object(
+            processing,
+            "_solve_unmixing_nnls",
+            side_effect=side_effect,
+        ):
+            concs, rmse, fitted, solver_info = processing.solve_unmixing_iterative(
+                od_cube,
+                static_A,
+                common_wl,
+                led_emission,
+                chromophore_spectra,
+                led_wavelengths=[500, 600],
+                chromophore_names=["X"],
+                include_background=False,
+                max_iter=5,
+                damping=1.0,
+            )
+
+        self.assertEqual(solver_info["stop_reason"], "iterative_error")
+        self.assertTrue(solver_info["fallback_used"])
+        self.assertIn("best successful iterate", solver_info["fallback_reason"])
+        self.assertIsNotNone(solver_info["iterative_error"])
+        self.assertTrue(np.allclose(concs, ok_concs))
+
+    def test_iterative_solver_double_fault_raises(self):
+        """When both the iterative solver and the static fallback fail, a
+        RuntimeError is raised rather than silently returning garbage."""
+        od_cube = np.ones((1, 1, 2), dtype=float)
+        # Deliberately mis-shape static_A to trigger fallback failure too.
+        static_A = np.array([[1.0]], dtype=float)  # 1 col for 2-band od_cube
+        common_wl = np.array([500.0, 600.0], dtype=float)
+        led_emission = {
+            500: np.array([1.0, 0.0], dtype=float),
+            600: np.array([0.0, 1.0], dtype=float),
+        }
+        chromophore_spectra = {
+            "X": (common_wl, np.array([1.0, 2.0], dtype=float)),
+        }
+
+        with mock.patch.object(
+            processing,
+            "estimate_effective_pathlength",
+            side_effect=ValueError("simulated failure in pathlength"),
+        ):
+            with self.assertRaises(RuntimeError) as ctx:
+                processing.solve_unmixing_iterative(
+                    od_cube,
+                    static_A,
+                    common_wl,
+                    led_emission,
+                    chromophore_spectra,
+                    led_wavelengths=[500, 600],
+                    chromophore_names=["X"],
+                    include_background=False,
+                    max_iter=5,
+                )
+            self.assertIn("Iterative unmixing error", str(ctx.exception))
+            self.assertIn("fallback also failed", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
