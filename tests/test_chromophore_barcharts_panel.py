@@ -103,6 +103,57 @@ def test_barcharts_panel_renders_mean_and_median_per_sample(qapp_instance):
     np.testing.assert_allclose(second_heights, [10.0, 7.0, 10.0, 7.0], rtol=0, atol=1e-12)
 
 
+def test_barcharts_panel_renders_bilirubin_index_diagnostic_subplot(qapp_instance):
+    """Bilirubin index appears as a diagnostic subplot, not as a concentration axis."""
+    from app.gui_qt.panels.chromophore_barcharts_panel import ChromophoreBarChartsPanel
+
+    panel = ChromophoreBarChartsPanel()
+    panel.set_data(
+        {
+            "A1": {
+                "chromophore_names": ["hb_agat_extr", "bili_agat"],
+                "concentrations": np.ones((2, 2, 2)),
+                "derived_maps": {"Bilirubin Index (OD450-OD517)": np.full((2, 2), 0.04)},
+            },
+            "A2": {
+                "chromophore_names": ["hb_agat_extr", "bili_agat"],
+                "concentrations": np.ones((2, 2, 2)) * 2,
+                "derived_maps": {"Bilirubin Index (OD450-OD517)": np.full((2, 2), 0.02)},
+            },
+        }
+    )
+    qapp_instance.processEvents()
+
+    fig = panel._canvas.figure
+    assert len(fig.axes) == 3
+    derived_ax = fig.axes[2]
+    assert "Bilirubin Index" in derived_ax.get_title()
+    assert derived_ax.get_ylabel() == "OD450 - OD517 (dimensionless)"
+    assert fig._suptitle.get_text() == "Chromophore Comparison Across Samples + Bilirubin Diagnostic"
+    heights = [patch.get_height() for patch in derived_ax.patches]
+    np.testing.assert_allclose(heights, [0.04, 0.02, 0.04, 0.02])
+
+
+def test_barcharts_panel_renders_calibrated_estimate_with_disclaimer_axis(qapp_instance):
+    from app.gui_qt.panels.chromophore_barcharts_panel import ChromophoreBarChartsPanel
+
+    panel = ChromophoreBarChartsPanel()
+    panel.set_data(
+        {
+            "A1": {
+                "chromophore_names": ["Hb"],
+                "concentrations": np.ones((2, 2, 1)),
+                "derived_maps": {"Bilirubin est. (calibrated, see disclaimer)": np.full((2, 2), 270.0)},
+            }
+        }
+    )
+    qapp_instance.processEvents()
+
+    fig = panel._canvas.figure
+    assert len(fig.axes) == 2
+    assert fig.axes[1].get_ylabel() == "domain-calibrated estimate (see disclaimer)"
+
+
 def test_barcharts_panel_invalid_data_shows_placeholder(qapp_instance):
     """Invalid payloads render a no-data message instead of raising."""
     from app.gui_qt.panels.chromophore_barcharts_panel import ChromophoreBarChartsPanel

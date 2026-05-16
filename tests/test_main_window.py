@@ -349,6 +349,11 @@ class TestQt003Toolbar(unittest.TestCase):
             "chromophore_menu",
             "solver_label",
             "solver_combo",
+            "bilirubin_checkbox",
+            "bilirubin_k_entry",
+            "calibration_checkbox",
+            "calibration_load_btn",
+            "calibration_path_label",
         ]
         expected_run_order = [
             "run_btn",
@@ -430,16 +435,32 @@ class TestQt003Toolbar(unittest.TestCase):
         self.assertFalse(solver_combo.isEditable())
 
     def test_solver_combo_options_order(self):
-        """Solver combo options must be exactly ['ls', 'nnls', 'mu_a', 'iterative'] in order."""
+        """Solver combo options must be exactly ['ls', 'nnls', 'mu_a', 'iterative', 'km'] in order."""
         from PySide6.QtWidgets import QComboBox
         from app.gui_qt.main_window import SOLVER_COMBO_OBJECT_NAME
 
         solver_combo = self.impl.findChild(QComboBox, SOLVER_COMBO_OBJECT_NAME)
         self.assertIsNotNone(solver_combo)
 
-        expected = ["ls", "nnls", "mu_a", "iterative"]
+        expected = ["ls", "nnls", "mu_a", "iterative", "km"]
         actual = [solver_combo.itemText(i) for i in range(solver_combo.count())]
         self.assertEqual(actual, expected)
+
+    def test_bilirubin_index_controls_present_and_unchecked(self):
+        """Bilirubin index controls should be present and opt-in."""
+        from PySide6.QtWidgets import QCheckBox, QLineEdit
+        from app.gui_qt.main_window import (
+            BILIRUBIN_CHECKBOX_OBJECT_NAME,
+            BILIRUBIN_K_ENTRY_OBJECT_NAME,
+        )
+
+        checkbox = self.impl.findChild(QCheckBox, BILIRUBIN_CHECKBOX_OBJECT_NAME)
+        k_entry = self.impl.findChild(QLineEdit, BILIRUBIN_K_ENTRY_OBJECT_NAME)
+
+        self.assertIsNotNone(checkbox)
+        self.assertIsNotNone(k_entry)
+        self.assertFalse(checkbox.isChecked())
+        self.assertIn("OD450", checkbox.toolTip())
 
     def test_solver_combo_default_selection(self):
         """Solver combo default selection must be 'ls'."""
@@ -542,6 +563,43 @@ class TestQt003Toolbar(unittest.TestCase):
         self.assertFalse(iterative_toolbar.isVisible())
         self.assertFalse(iterative_advanced_toolbar.isVisible())
 
+    def test_km_selection_shows_scattering_and_hides_background(self):
+        """Choosing km should show fixed-scattering controls and hide background."""
+        from PySide6.QtTest import QTest
+        from PySide6.QtWidgets import QComboBox, QLineEdit, QLabel, QToolBar
+        from app.gui_qt.main_window import (
+            BACKGROUND_LABEL_OBJECT_NAME,
+            BG_ENTRY_OBJECT_NAME,
+            BG_MODEL_COMBO_OBJECT_NAME,
+            ITERATIVE_ADVANCED_TOOLBAR_OBJECT_NAME,
+            ITERATIVE_TOOLBAR_OBJECT_NAME,
+            SCATTERING_ADVANCED_TOOLBAR_OBJECT_NAME,
+            SCATTERING_TOOLBAR_OBJECT_NAME,
+            SOLVER_COMBO_OBJECT_NAME,
+        )
+
+        self.impl.show()
+        QTest.qWait(10)
+        solver_combo = self.impl.findChild(QComboBox, SOLVER_COMBO_OBJECT_NAME)
+        background_label = self.impl.findChild(QLabel, BACKGROUND_LABEL_OBJECT_NAME)
+        bg_model_combo = self.impl.findChild(QComboBox, BG_MODEL_COMBO_OBJECT_NAME)
+        bg_entry = self.impl.findChild(QLineEdit, BG_ENTRY_OBJECT_NAME)
+        scattering_toolbar = self.impl.findChild(QToolBar, SCATTERING_TOOLBAR_OBJECT_NAME)
+        scattering_advanced_toolbar = self.impl.findChild(QToolBar, SCATTERING_ADVANCED_TOOLBAR_OBJECT_NAME)
+        iterative_toolbar = self.impl.findChild(QToolBar, ITERATIVE_TOOLBAR_OBJECT_NAME)
+        iterative_advanced_toolbar = self.impl.findChild(QToolBar, ITERATIVE_ADVANCED_TOOLBAR_OBJECT_NAME)
+
+        solver_combo.setCurrentText("km")
+        QTest.qWait(10)
+
+        self.assertFalse(background_label.isVisible())
+        self.assertFalse(bg_model_combo.isVisible())
+        self.assertFalse(bg_entry.isVisible())
+        self.assertTrue(scattering_toolbar.isVisible())
+        self.assertTrue(scattering_advanced_toolbar.isVisible())
+        self.assertFalse(iterative_toolbar.isVisible())
+        self.assertFalse(iterative_advanced_toolbar.isVisible())
+
     def test_iterative_selection_shows_background_scattering_and_iterative_controls(self):
         """Choosing iterative should show background, fixed-scattering, and iterative controls."""
         from PySide6.QtTest import QTest
@@ -609,6 +667,78 @@ class TestQt003Toolbar(unittest.TestCase):
         self.assertFalse(scattering_toolbar.isVisible())
         self.assertFalse(scattering_advanced_toolbar.isVisible())
 
+    def test_bilirubin_index_snapshot_captures_flag_and_k(self):
+        """Run snapshot should capture bilirubin-index settings."""
+        from PySide6.QtWidgets import QCheckBox, QLineEdit
+        from app.gui_qt.main_window import (
+            BILIRUBIN_CHECKBOX_OBJECT_NAME,
+            BILIRUBIN_K_ENTRY_OBJECT_NAME,
+        )
+
+        self.window.root_dir = "/tmp/root"
+        self.window.data_dir = "/tmp/data"
+        self.window.folder_info = {"wavelengths": [450, 517, 671]}
+        self.window.set_chromophores(["Hb"])
+
+        checkbox = self.impl.findChild(QCheckBox, BILIRUBIN_CHECKBOX_OBJECT_NAME)
+        k_entry = self.impl.findChild(QLineEdit, BILIRUBIN_K_ENTRY_OBJECT_NAME)
+        checkbox.setChecked(True)
+        k_entry.setText("0.02")
+
+        snapshot = self.window._build_config_snapshot()
+
+        self.assertTrue(snapshot["compute_bilirubin_index"])
+        self.assertEqual(snapshot["bilirubin_index_k_hb"], 0.02)
+
+    def test_bilirubin_index_snapshot_requires_450_and_517_bands(self):
+        """Bilirubin index should validate required bands early."""
+        from PySide6.QtWidgets import QCheckBox
+        from app.gui_qt.main_window import BILIRUBIN_CHECKBOX_OBJECT_NAME
+
+        self.window.root_dir = "/tmp/root"
+        self.window.data_dir = "/tmp/data"
+        self.window.folder_info = {"wavelengths": [500, 550, 671]}
+        self.window.set_chromophores(["Hb"])
+
+        checkbox = self.impl.findChild(QCheckBox, BILIRUBIN_CHECKBOX_OBJECT_NAME)
+        checkbox.setChecked(True)
+
+        with self.assertRaisesRegex(ValueError, "450 nm and 517 nm"):
+            self.window._build_config_snapshot()
+
+    def test_global_scales_include_dynamic_derived_keys(self):
+        """Derived scales should include bilirubin-index maps, not just THb/StO2."""
+        import numpy as np
+
+        results = {
+            "A1": {
+                "concentrations": np.zeros((2, 2, 1)),
+                "derived": {
+                    "THb": np.ones((2, 2)),
+                    "Bilirubin Index (OD450-OD517)": np.array([[0.1, 0.2], [0.3, 0.4]]),
+                },
+                "rmse_map": np.zeros((2, 2)),
+            },
+            "A2": {
+                "concentrations": np.zeros((2, 2, 1)),
+                "derived": {
+                    "THb": np.ones((2, 2)) * 2,
+                    "Bilirubin Index (OD450-OD517)": np.array([[0.0, 0.5], [0.6, 0.7]]),
+                },
+                "rmse_map": np.ones((2, 2)),
+            },
+        }
+
+        _chrom_scales, derived_scales = self.window._compute_global_scales(
+            results,
+            ["Hb"],
+            include_background=False,
+        )
+
+        self.assertEqual(derived_scales["Bilirubin Index (OD450-OD517)"], (0.0, 0.7))
+        self.assertEqual(derived_scales["THb"], (1.0, 2.0))
+        self.assertEqual(derived_scales["RMSE"], (0.0, 1.0))
+
     def test_mu_a_snapshot_captures_scattering_parameters(self):
         """Run snapshot should include validated fixed-scattering parameters."""
         from PySide6.QtWidgets import QComboBox, QLineEdit
@@ -645,6 +775,54 @@ class TestQt003Toolbar(unittest.TestCase):
 
         self.assertEqual(snapshot["solver_method"], "mu_a")
         self.assertFalse(snapshot["include_background"])
+        self.assertEqual(
+            snapshot["scattering_parameters"],
+            {
+                "lambda0_nm": 510.0,
+                "mu_s_500_cm1": 130.0,
+                "power_b": 1.2,
+                "lipofundin_fraction": 0.35,
+                "anisotropy_g": 0.78,
+            },
+        )
+
+    def test_km_snapshot_captures_scattering_parameters_and_disables_background(self):
+        """KM snapshot should include scattering parameters and disable background."""
+        from PySide6.QtWidgets import QComboBox, QLineEdit
+        from app.gui_qt.main_window import (
+            SCATTERING_ANISOTROPY_ENTRY_OBJECT_NAME,
+            SCATTERING_LAMBDA0_ENTRY_OBJECT_NAME,
+            SCATTERING_LIPOFUNDIN_ENTRY_OBJECT_NAME,
+            SCATTERING_MU_S_500_ENTRY_OBJECT_NAME,
+            SCATTERING_POWER_ENTRY_OBJECT_NAME,
+            SOLVER_COMBO_OBJECT_NAME,
+        )
+
+        self.window.root_dir = "/tmp/root"
+        self.window.data_dir = "/tmp/data"
+        self.window.folder_info = {"wavelengths": [500, 550]}
+        self.window.set_chromophores(["hb_agat_extr", "bili_agat", "Background"])
+
+        solver_combo = self.impl.findChild(QComboBox, SOLVER_COMBO_OBJECT_NAME)
+        solver_combo.setCurrentText("km")
+
+        entry_values = {
+            SCATTERING_LAMBDA0_ENTRY_OBJECT_NAME: "510",
+            SCATTERING_MU_S_500_ENTRY_OBJECT_NAME: "130",
+            SCATTERING_POWER_ENTRY_OBJECT_NAME: "1.2",
+            SCATTERING_LIPOFUNDIN_ENTRY_OBJECT_NAME: "0.35",
+            SCATTERING_ANISOTROPY_ENTRY_OBJECT_NAME: "0.78",
+        }
+        for object_name, value in entry_values.items():
+            entry = self.impl.findChild(QLineEdit, object_name)
+            self.assertIsNotNone(entry)
+            entry.setText(value)
+
+        snapshot = self.window._build_config_snapshot()
+
+        self.assertEqual(snapshot["solver_method"], "km")
+        self.assertFalse(snapshot["include_background"])
+        self.assertEqual(snapshot["selected_chromophores"], ["bili_agat", "hb_agat_extr"])
         self.assertEqual(
             snapshot["scattering_parameters"],
             {

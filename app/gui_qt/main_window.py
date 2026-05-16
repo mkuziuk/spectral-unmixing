@@ -53,6 +53,11 @@ USE_DEFAULT_BTN_OBJECT_NAME: str = "use_default_btn"
 CHROMOPHORE_MENU_OBJECT_NAME: str = "chromophore_menu"
 SOLVER_LABEL_OBJECT_NAME: str = "solver_label"
 SOLVER_COMBO_OBJECT_NAME: str = "solver_combo"
+BILIRUBIN_CHECKBOX_OBJECT_NAME: str = "bilirubin_checkbox"
+BILIRUBIN_K_ENTRY_OBJECT_NAME: str = "bilirubin_k_entry"
+CALIBRATION_CHECKBOX_OBJECT_NAME: str = "calibration_checkbox"
+CALIBRATION_LOAD_BTN_OBJECT_NAME: str = "calibration_load_btn"
+CALIBRATION_PATH_LABEL_OBJECT_NAME: str = "calibration_path_label"
 BACKGROUND_LABEL_OBJECT_NAME: str = "background_label"
 BG_MODEL_COMBO_OBJECT_NAME: str = "bg_model_combo"
 BG_ENTRY_OBJECT_NAME: str = "bg_entry"
@@ -130,6 +135,8 @@ class SpectralUnmixingMainWindow:
         self._chrom_scales: Dict[str, tuple[float, float]] = {}
         self._derived_scales: Dict[str, tuple[float, float]] = {}
         self._last_config_snapshot: Dict[str, Any] | None = None
+        self._calibration_model: Any = None
+        self._calibration_path: str | None = None
 
         # Keep panel instances for cross-tab refresh callbacks.
         self._maps_panel: Any = None
@@ -334,8 +341,10 @@ class SpectralUnmixingMainWindow:
         """Construct top toolbar with stable QT-003 control ordering."""
         from PySide6.QtCore import Qt
         from PySide6.QtWidgets import (
+            QCheckBox,
             QComboBox,
             QLabel,
+            QLineEdit,
             QPushButton,
             QToolBar,
         )
@@ -380,10 +389,50 @@ class SpectralUnmixingMainWindow:
         solver_combo = QComboBox(toolbar)
         solver_combo.setObjectName(SOLVER_COMBO_OBJECT_NAME)
         solver_combo.setEditable(False)
-        solver_combo.addItems(["ls", "nnls", "mu_a", "iterative"])
+        solver_combo.addItems(["ls", "nnls", "mu_a", "iterative", "km"])
         solver_combo.setCurrentIndex(0)
         solver_combo.currentTextChanged.connect(self._on_solver_method_changed)
         toolbar.addWidget(solver_combo)
+
+        bilirubin_checkbox = QCheckBox("Bilirubin Index", toolbar)
+        bilirubin_checkbox.setObjectName(BILIRUBIN_CHECKBOX_OBJECT_NAME)
+        bilirubin_checkbox.setToolTip(
+            "Compute a model-free two-band bilirubin diagnostic index (OD450 - OD517). "
+            "This is a dimensionless trend indicator, NOT a physical bilirubin concentration. "
+            "Requires 450 nm and 517 nm bands. Optional Hb correction uses the k entry."
+        )
+        toolbar.addWidget(bilirubin_checkbox)
+
+        bilirubin_k_entry = QLineEdit(toolbar)
+        bilirubin_k_entry.setObjectName(BILIRUBIN_K_ENTRY_OBJECT_NAME)
+        bilirubin_k_entry.setPlaceholderText("k_corr")
+        bilirubin_k_entry.setMaximumWidth(70)
+        bilirubin_k_entry.setToolTip(
+            "Optional non-negative Hb-correction factor k for OD450 - OD517 - k*ODref. "
+            "Leave empty for the raw bilirubin index. Only use k_corr if your loaded "
+            "calibration was fitted with that same k value; the default calibration uses no k_corr."
+        )
+        toolbar.addWidget(bilirubin_k_entry)
+
+        calibration_checkbox = QCheckBox("Apply Calibration", toolbar)
+        calibration_checkbox.setObjectName(CALIBRATION_CHECKBOX_OBJECT_NAME)
+        calibration_checkbox.setToolTip(
+            "Apply a loaded bilirubin-index calibration to create a domain-calibrated "
+            "estimate map. Enable Bilirubin Index first. Estimates are not physical "
+            "unmixing concentrations and may be unvalidated."
+        )
+        toolbar.addWidget(calibration_checkbox)
+
+        calibration_load_btn = QPushButton("Load Calibration...", toolbar)
+        calibration_load_btn.setObjectName(CALIBRATION_LOAD_BTN_OBJECT_NAME)
+        calibration_load_btn.setToolTip("Load a bilirubin calibration JSON file.")
+        calibration_load_btn.clicked.connect(self._on_load_calibration_clicked)
+        toolbar.addWidget(calibration_load_btn)
+
+        calibration_path_label = QLabel("No calibration loaded", toolbar)
+        calibration_path_label.setObjectName(CALIBRATION_PATH_LABEL_OBJECT_NAME)
+        calibration_path_label.setToolTip("Loaded bilirubin calibration file.")
+        toolbar.addWidget(calibration_path_label)
 
         return toolbar
 
@@ -1221,6 +1270,36 @@ class SpectralUnmixingMainWindow:
         if self._pipeline_fn is None:
             self._set_run_enabled(self._can_run_pipeline())
 
+    def _on_load_calibration_clicked(self) -> None:
+        """Load a bilirubin-index calibration JSON file."""
+        from PySide6.QtWidgets import QFileDialog, QLabel
+        from app.core.calibration import load_calibration
+
+        path, _filter = QFileDialog.getOpenFileName(
+            self._impl,
+            "Load bilirubin calibration JSON",
+            "",
+            "Calibration JSON (*.json);;All files (*)",
+        )
+        if not path:
+            return
+
+        try:
+            model = load_calibration(path)
+        except Exception as exc:
+            self._show_error("Load Calibration Failed", str(exc))
+            return
+
+        self._calibration_model = model
+        self._calibration_path = path
+        label = self._impl.findChild(QLabel, CALIBRATION_PATH_LABEL_OBJECT_NAME)
+        if label is not None:
+            loo_r2 = model.fit_quality.get("loo_r2") if isinstance(model.fit_quality, dict) else None
+            warn = " ⚠ unvalidated" if loo_r2 is not None and loo_r2 < 0 else ""
+            label.setText(f"Calibration: {os.path.basename(path)}{warn}")
+            label.setToolTip(model.disclaimer)
+        self._set_status(f"Loaded calibration: {os.path.basename(path)}")
+
     def _on_save_clicked(self) -> None:
         """Choose output directory and export current results."""
         from PySide6.QtWidgets import QFileDialog
@@ -1252,6 +1331,7 @@ class SpectralUnmixingMainWindow:
                     res.get("diagnostics", {}),
                     chrom_scales=self._chrom_scales,
                     derived_scales=self._derived_scales,
+                    calibration_model=res.get("calibration_model"),
                 )
         except Exception as exc:
             self._set_status("Save failed")
@@ -1418,16 +1498,51 @@ class SpectralUnmixingMainWindow:
         if not self.data_dir:
             raise RuntimeError("Select a valid data folder before running.")
 
-        from PySide6.QtWidgets import QComboBox
+        from PySide6.QtWidgets import QCheckBox, QComboBox, QLineEdit
 
         solver_combo = self._impl.findChild(QComboBox, SOLVER_COMBO_OBJECT_NAME)
+        bilirubin_checkbox = self._impl.findChild(QCheckBox, BILIRUBIN_CHECKBOX_OBJECT_NAME)
+        bilirubin_k_entry = self._impl.findChild(QLineEdit, BILIRUBIN_K_ENTRY_OBJECT_NAME)
+        calibration_checkbox = self._impl.findChild(QCheckBox, CALIBRATION_CHECKBOX_OBJECT_NAME)
 
         solver_method = solver_combo.currentText() if solver_combo is not None else "ls"
         use_fixed_scattering = self._uses_fixed_scattering_solver(solver_method)
-        supports_background = solver_method != "mu_a"
+        supports_background = solver_method not in {"mu_a", "km"}
         background_parameters = None
         scattering_parameters = None
         iterative_parameters = None
+        compute_bilirubin_index = bool(
+            bilirubin_checkbox.isChecked() if bilirubin_checkbox is not None else False
+        )
+        apply_calibration = bool(
+            calibration_checkbox.isChecked() if calibration_checkbox is not None else False
+        )
+        calibration_model = self._calibration_model if apply_calibration else None
+        if apply_calibration and not compute_bilirubin_index:
+            raise ValueError("Enable Bilirubin Index before applying calibration.")
+        if apply_calibration and calibration_model is None:
+            raise ValueError("Load a calibration file to apply bilirubin calibration.")
+
+        bilirubin_index_k_hb = None
+        if bilirubin_k_entry is not None and bilirubin_k_entry.text().strip():
+            try:
+                bilirubin_index_k_hb = float(bilirubin_k_entry.text().strip())
+            except ValueError as exc:
+                raise ValueError("Bilirubin index k correction must be a number.") from exc
+            if bilirubin_index_k_hb < 0:
+                raise ValueError("Bilirubin index k correction must be >= 0.")
+
+        if apply_calibration and calibration_model is not None:
+            # The loaded calibration defines the index formula; the model's k wins.
+            bilirubin_index_k_hb = calibration_model.k_hb_correction
+
+        if compute_bilirubin_index:
+            wavelengths = list(self.folder_info.get("wavelengths", []))
+            missing_bili_wls = [wl for wl in (450, 517) if wl not in wavelengths]
+            if missing_bili_wls:
+                raise ValueError("Bilirubin index requires 450 nm and 517 nm bands.")
+            if bilirubin_index_k_hb is not None and 671 not in wavelengths:
+                raise ValueError("Bilirubin index Hb correction requires a 671 nm reference band.")
 
         if supports_background:
             try:
@@ -1452,7 +1567,7 @@ class SpectralUnmixingMainWindow:
         selected = self.get_selection(include_background=True)
         include_background = "Background" in selected
         selected_chroms = [name for name in selected if name != "Background"]
-        if solver_method == "mu_a":
+        if solver_method in {"mu_a", "km"}:
             include_background = False
             if not selected_chroms:
                 raise ValueError(
@@ -1472,14 +1587,21 @@ class SpectralUnmixingMainWindow:
             "iterative_parameters": iterative_parameters,
             "include_background": include_background,
             "selected_chromophores": selected_chroms,
+            "compute_bilirubin_index": compute_bilirubin_index,
+            "bilirubin_index_k_hb": bilirubin_index_k_hb,
+            "apply_bilirubin_calibration": apply_calibration,
+            "bilirubin_calibration_model": calibration_model,
+            "bilirubin_calibration_path": self._calibration_path if apply_calibration else None,
         }
 
     def _make_pipeline_adapter(self, snapshot: Dict[str, Any]) -> Callable[[], Dict[str, Any]]:
         """Return a pragmatic QT pipeline callable reusing legacy core logic."""
 
         def _pipeline() -> Dict[str, Any]:
+            import numpy as np
             from app.core import io as loader
             from app.core import processing
+            from app.core.calibration import apply_calibration, calibration_clamp_counts
 
             info = snapshot["folder_info"]
             wls = info["wavelengths"]
@@ -1495,13 +1617,14 @@ class SpectralUnmixingMainWindow:
             pen_wl, pen_depth = loader.load_penetration_depth(data_dir)
 
             mus_prime = None
-            if snapshot["solver_method"] == "mu_a":
+            if snapshot["solver_method"] in {"mu_a", "km"}:
                 A, chrom_names = processing.build_absorption_matrix(
                     led_wl,
                     led_em,
                     chrom_spectra,
                     wls,
                     chromophore_names=snapshot["selected_chromophores"],
+                    clip_negative_extinction=snapshot["solver_method"] == "km",
                 )
                 mus_prime = processing.build_fixed_scattering_profile(
                     led_wl,
@@ -1581,6 +1704,17 @@ class SpectralUnmixingMainWindow:
                         )
                     )
                     active_A = solver_info.get("A_used", A)
+                elif snapshot["solver_method"] == "km":
+                    concentrations, rmse_map, fitted_od = processing.solve_unmixing_km(
+                        reflectance,
+                        A,
+                        mus_prime,
+                    )
+                    solver_info = {
+                        "method": "km",
+                        "base_method": "nnls",
+                        "scattering_parameters": snapshot["scattering_parameters"],
+                    }
                 else:
                     concentrations, rmse_map, fitted_od = processing.solve_unmixing(
                         od_cube,
@@ -1589,12 +1723,51 @@ class SpectralUnmixingMainWindow:
                         mus_prime=mus_prime,
                     )
                 derived = processing.compute_derived_maps(concentrations, chrom_names)
+                if snapshot.get("compute_bilirubin_index"):
+                    idx_450 = wls.index(450)
+                    idx_517 = wls.index(517)
+                    idx_ref = wls.index(671) if 671 in wls else None
+                    bilirubin_index = processing.compute_bilirubin_index(
+                        reflectance,
+                        wavelength_index_450=idx_450,
+                        wavelength_index_517=idx_517,
+                        wavelength_index_ref=idx_ref,
+                        k_hb_correction=snapshot.get("bilirubin_index_k_hb"),
+                    )
+                    derived["Bilirubin Index (OD450-OD517)"] = bilirubin_index["bi_corrected"]
+                    if snapshot.get("bilirubin_index_k_hb") is not None:
+                        derived["Bili Index (raw)"] = bilirubin_index["bi_raw"]
+                    if snapshot.get("apply_bilirubin_calibration"):
+                        model = snapshot.get("bilirubin_calibration_model")
+                        if model is not None:
+                            calibrated = apply_calibration(bilirubin_index["bi_corrected"], model)
+                            derived["Bilirubin est. (calibrated, see disclaimer)"] = calibrated
+                            derived["Bilirubin est. clamp mask"] = np.isfinite(calibrated).astype(float)
+                            clamp_counts = calibration_clamp_counts(bilirubin_index["bi_corrected"], model)
+                        else:
+                            clamp_counts = {}
+                    else:
+                        clamp_counts = {}
+                else:
+                    clamp_counts = {}
                 diagnostics = processing.compute_diagnostics(
                     reflectance,
                     od_cube,
                     rmse_map,
                     active_A,
                 )
+                if snapshot.get("apply_bilirubin_calibration"):
+                    model = snapshot.get("bilirubin_calibration_model")
+                    warnings_list = list(diagnostics.get("warnings", []))
+                    if model is not None:
+                        loo_r2 = model.fit_quality.get("loo_r2") if isinstance(model.fit_quality, dict) else None
+                        if loo_r2 is not None and loo_r2 < 0:
+                            warnings_list.append(
+                                "Bilirubin calibration is not cross-validated (LOO R² < 0); estimates are diagnostic only."
+                            )
+                        if clamp_counts:
+                            diagnostics["bilirubin_calibration_clamp_counts"] = clamp_counts
+                    diagnostics["warnings"] = warnings_list
 
                 results[sample_name] = {
                     "sample_cube": sample_cube,
@@ -1616,6 +1789,11 @@ class SpectralUnmixingMainWindow:
                     "solver_info": solver_info,
                     "solver_method": snapshot["solver_method"],
                     "wavelengths": wls,
+                    "compute_bilirubin_index": snapshot.get("compute_bilirubin_index", False),
+                    "bilirubin_index_k_hb": snapshot.get("bilirubin_index_k_hb"),
+                    "apply_bilirubin_calibration": snapshot.get("apply_bilirubin_calibration", False),
+                    "calibration_model": snapshot.get("bilirubin_calibration_model"),
+                    "calibration_path": snapshot.get("bilirubin_calibration_path"),
                 }
 
             chrom_scales, derived_scales = self._compute_global_scales(
@@ -1688,7 +1866,7 @@ class SpectralUnmixingMainWindow:
     @staticmethod
     def _uses_fixed_scattering_solver(solver_method: str) -> bool:
         """Return True when a solver uses the fixed-scattering controls."""
-        return solver_method in {"mu_a", "iterative"}
+        return solver_method in {"mu_a", "iterative", "km"}
 
     @staticmethod
     def _scattering_entry_specs() -> tuple[tuple[str, str, str], ...]:
@@ -1863,7 +2041,7 @@ class SpectralUnmixingMainWindow:
 
         use_fixed_scattering = self._uses_fixed_scattering_solver(solver_method)
         use_iterative_controls = solver_method == "iterative"
-        use_background_controls = solver_method != "mu_a"
+        use_background_controls = solver_method not in {"mu_a", "km"}
 
         background_toolbar = self._impl.findChild(QToolBar, BACKGROUND_TOOLBAR_OBJECT_NAME)
         scattering_toolbar = self._impl.findChild(QToolBar, SCATTERING_TOOLBAR_OBJECT_NAME)
@@ -2291,8 +2469,7 @@ class SpectralUnmixingMainWindow:
         derived_scales: Dict[str, tuple[float, float]] = {}
         for res in results.values():
             derived = res.get("derived", {})
-            for key in ["THb", "StO2"]:
-                arr = derived.get(key)
+            for key, arr in derived.items():
                 if arr is None:
                     continue
                 finite = np.asarray(arr)[np.isfinite(arr)]

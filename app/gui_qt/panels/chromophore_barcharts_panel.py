@@ -79,8 +79,8 @@ class ChromophoreBarChartsPanel:
 
     def _compute_chart_data(
         self,
-    ) -> tuple[list[str], list[str], np.ndarray, np.ndarray] | None:
-        """Return sample names, chromophore names, mean values, and medians."""
+    ) -> tuple[list[str], list[str], np.ndarray, np.ndarray, dict[str, tuple[np.ndarray, np.ndarray]]] | None:
+        """Return sample names, chromophore stats, and bilirubin diagnostic stats."""
         if not self._results:
             return None
 
@@ -123,7 +123,36 @@ class ChromophoreBarChartsPanel:
         if not np.isfinite(means).any() and not np.isfinite(medians).any():
             return None
 
-        return sample_names, reference_names, means, medians
+        derived_keys: list[str] = []
+        for sample in self._results.values():
+            derived = sample.get("derived_maps") or sample.get("derived") or {}
+            if not isinstance(derived, dict):
+                continue
+            for key in derived.keys():
+                key_str = str(key)
+                if _is_bilirubin_diagnostic_key(key_str) and key_str not in derived_keys:
+                    derived_keys.append(key_str)
+
+        derived_stats: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+        for key in derived_keys:
+            d_means = np.full(len(sample_names), np.nan, dtype=float)
+            d_medians = np.full(len(sample_names), np.nan, dtype=float)
+            for sample_idx, sample_name in enumerate(sample_names):
+                sample = self._results[sample_name]
+                derived = sample.get("derived_maps") or sample.get("derived") or {}
+                if not isinstance(derived, dict) or key not in derived:
+                    continue
+                data = np.asarray(derived[key], dtype=float)
+                if data.size == 0:
+                    continue
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", RuntimeWarning)
+                    d_means[sample_idx] = float(np.nanmean(data))
+                    d_medians[sample_idx] = float(np.nanmedian(data))
+            if np.isfinite(d_means).any() or np.isfinite(d_medians).any():
+                derived_stats[key] = (d_means, d_medians)
+
+        return sample_names, reference_names, means, medians, derived_stats
 
     def _redraw(self) -> None:
         """Render the per-chromophore mean/median bar charts."""
@@ -148,10 +177,12 @@ class ChromophoreBarChartsPanel:
             self._canvas._impl.draw()
             return
 
-        sample_names, chromophore_names, means, medians = chart_data
+        sample_names, chromophore_names, means, medians, derived_stats = chart_data
         n_chromophores = len(chromophore_names)
-        n_cols = min(3, n_chromophores)
-        n_rows = int(math.ceil(n_chromophores / n_cols))
+        n_derived = len(derived_stats)
+        n_total = n_chromophores + n_derived
+        n_cols = min(3, n_total)
+        n_rows = int(math.ceil(n_total / n_cols))
         x_positions = np.arange(len(sample_names), dtype=float)
         bar_width = 0.35
 
@@ -169,9 +200,36 @@ class ChromophoreBarChartsPanel:
             ax.legend()
             axes.append(ax)
 
-        fig.suptitle(_FIGURE_TITLE)
+        for derived_idx, (derived_name, (d_means, d_medians)) in enumerate(derived_stats.items()):
+            ax = fig.add_subplot(n_rows, n_cols, n_chromophores + derived_idx + 1)
+            ax.bar(x_positions - bar_width / 2, d_means, bar_width, label="Mean")
+            ax.bar(x_positions + bar_width / 2, d_medians, bar_width, label="Median")
+            ax.set_title(f"{derived_name}\nDiagnostic summary")
+            ax.set_xlabel("Samples")
+            ax.set_ylabel(_derived_y_label(derived_name))
+            ax.set_xticks(x_positions)
+            ax.set_xticklabels(sample_names, rotation=45, ha="right")
+            ax.grid(axis="y", alpha=0.3)
+            ax.legend()
+            axes.append(ax)
+
+        fig.suptitle(_FIGURE_TITLE + (" + Bilirubin Diagnostic" if n_derived else ""))
         fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.95))
         self._canvas._impl.draw()
+
+
+def _is_bilirubin_diagnostic_key(name: str) -> bool:
+    return (
+        "Bilirubin Index" in name
+        or "Bili Index" in name
+        or "Bilirubin est." in name
+    )
+
+
+def _derived_y_label(name: str) -> str:
+    if "est." in name:
+        return "domain-calibrated estimate (see disclaimer)"
+    return "OD450 - OD517 (dimensionless)"
 
 
 def _make_widget() -> type:

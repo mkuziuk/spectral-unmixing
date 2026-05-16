@@ -10,6 +10,8 @@ import matplotlib
 matplotlib.use("Agg")  # non-interactive backend for saving
 import matplotlib.pyplot as plt
 
+from app.core.calibration import model_summary_for_metadata
+
 
 def save_results(
     output_dir: str,
@@ -21,6 +23,7 @@ def save_results(
     diagnostics: dict,
     chrom_scales: dict = None,
     derived_scales: dict = None,
+    calibration_model=None,
 ):
     """
     Save all results for one sample.
@@ -79,6 +82,26 @@ def save_results(
         },
         "warnings": diagnostics.get("warnings", []),
     }
+    if any("Bilirubin Index" in str(key) or "Bili Index" in str(key) for key in derived):
+        meta["bilirubin_index_note"] = (
+            "The Bilirubin Index is a dimensionless two-band diagnostic "
+            "(OD450-OD517, optionally Hb-corrected). It is not an absolute "
+            "bilirubin concentration and should be interpreted only within an "
+            "appropriate calibration domain."
+        )
+    if any("Bilirubin est." in str(key) for key in derived):
+        summary = model_summary_for_metadata(calibration_model)
+        meta["bilirubin_calibration"] = summary or {
+            "disclaimer": (
+                "⚠ DISCLAIMER: A calibrated bilirubin estimate map was exported, "
+                "but no calibration model metadata was attached. Interpret as a "
+                "diagnostic estimate only."
+            ),
+            "independently_validated": False,
+        }
+        clamp_counts = diagnostics.get("bilirubin_calibration_clamp_counts") if isinstance(diagnostics, dict) else None
+        if clamp_counts:
+            meta["bilirubin_calibration"]["clamp_counts"] = clamp_counts
     with open(os.path.join(sample_dir, "metadata.json"), "w") as f:
         json.dump(meta, f, indent=2)
 
