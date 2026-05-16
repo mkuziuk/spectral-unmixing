@@ -21,13 +21,17 @@ Release `0.2.2` removes the legacy tkinter rollback path and keeps **PySide6** a
 
 ## Capabilities
 
+> Development note: branch `feature/kubelka-munk-solver` adds a Kubelka-Munk solver, a model-free bilirubin diagnostic index, and optional domain calibration for Lipofundin/Hb/bilirubin phantoms.
+
 * **Automated Data Processing**: Point the application to a root directory containing subfolders for each raw sample alongside reference (`ref/`) and dark-current (`dark_ref/`) folders. 
 * **Reflectance and Optical Density Extractor**: Performs pixelwise calculation from raw spectral intensity data directly.
 * **Complex Overlap Matrix formulation**: Automatically loads target absorption spectra (`data/chromophores/`). It creates an inclusive physical model handling LED bandwidth and wavelength-dependent penetration depth.
-* **Fast Spectral Unmixing**: Employs an exact simple least-squares mathematical model completely vectorized over pixel dimensions, enabling fast solving per image.
+* **Fast Spectral Unmixing**: Employs vectorized least-squares and NNLS models over pixel dimensions, enabling fast solving per image.
+* **Kubelka-Munk Solver**: Provides an optional `km` solver that converts diffuse reflectance through the Kubelka-Munk remission function before NNLS fitting with a fixed reduced-scattering profile.
 * **Dynamic Component Tracking**: Automatically identifies and extracts critical chromophores based on the contents of the `data/chromophores/` directory. Users can flexibly add or alter unmixing targets (such as HbO₂, Hb, Melanin, Bilirubin, and Water) simply by dropping custom `.csv` spectra files into this folder without needing to modify the codebase.
 * **Custom Data Folder Selection**: Users can select a custom data folder via the UI to support different experimental setups or shared reference data. The application validates the folder structure and provides clear error messages for missing required files.
-* **Derived Quality Metrics**: Computes aggregate metrics such as Total Hemoglobin (THb) and Oxygen Saturation (StO₂).
+* **Derived Quality Metrics**: Computes aggregate metrics such as Total Hemoglobin (THb), Oxygen Saturation (StO₂), and optional bilirubin diagnostic maps.
+* **Bilirubin Diagnostic Index**: Computes a model-free two-band map `OD450 - OD517`, with optional Hb correction and optional log-linear calibration from JSON. This is a domain diagnostic, not a physical concentration map.
 * **Statistical Analysis**: View summary statistics (mean and median reflectance) per hyperspectral cube across all wavelength bands.
 * **Interactive Data Inspector Panel**: Includes visual diagnostics and an interactive pixel inspector—allowing you to click on any pixel in the loaded cube to see measured versus fitted optical density spectra, estimated concentrations, residuals, and general pixel RMSE.
 * **Exporting**: Save unmixed component maps (.png), raw arrays (.npy or .csv) and metadata back to your file system.
@@ -79,6 +83,42 @@ Where $\mathbf{y}$ is the recorded OD on LED bands. Unmixing simply demands reso
 $$
 \hat{x} = \arg\min_x \lvert Ax - y\rvert_2^2
 $$
+
+### 5. Kubelka-Munk Reflectance Solver
+The optional `km` solver works from reflectance rather than directly fitting optical density. It uses the Kubelka-Munk remission function:
+
+$$
+F(R) = \frac{(1 - R)^2}{2R}
+$$
+
+With a fixed reduced-scattering profile $\mu_s'(\lambda)$, the solver estimates an absorption-like spectrum:
+
+$$
+\mu_a(\lambda) \approx \frac{F(R(\lambda))\,\mu_s'(\lambda)}{2}
+$$
+
+It then solves the chromophore coefficients by NNLS against the band-averaged absorption matrix. In the GUI, `km` uses the fixed-scattering controls and disables the background column.
+
+### 6. Bilirubin Index and Forward Calibration
+The optional bilirubin diagnostic map is computed from reflectance as:
+
+$$
+BI = OD_{450} - OD_{517} = \log_{10}\left(\frac{R_{517}}{R_{450}}\right)
+$$
+
+An optional Hb correction can be applied as:
+
+$$
+BI_{corrected} = OD_{450} - OD_{517} - k\,OD_{671}
+$$
+
+A calibration JSON can convert the index to a domain-calibrated estimate using a log-linear model:
+
+$$
+BI = \alpha\log_{10}([bilirubin]) + \beta
+$$
+
+⚠️ This bilirubin output is a two-band diagnostic. It is not a spectral-unmixing concentration and should not be treated as a validated physical bilirubin concentration unless independently calibrated and validated for the same imaging setup and phantom domain.
 
 ---
 
@@ -171,10 +211,12 @@ When selecting a custom data folder via the **🧪 Select Data Folder** button i
 custom_data_folder/
 ├── leds_emission.csv              # LED emission spectra (required)
 ├── penetration_depth*.csv         # Penetration depth data (required, see note below)
-└── chromophores/                  # Directory with chromophore spectra (required)
-    ├── HbO2.csv
-    ├── Hb.csv
-    └── ... (more .csv files)
+├── chromophores/                  # Directory with chromophore spectra (required)
+│   ├── HbO2.csv
+│   ├── Hb.csv
+│   └── ... (more .csv files)
+└── calibrations/                  # Optional bilirubin calibration JSON files
+    └── bilirubin_a1a6_log_linear.json
 ```
 
 **Required Files:**
@@ -197,10 +239,12 @@ custom_data_folder/
 3. Click **🧪 Select Data Folder** to choose a custom data folder with required files
 4. Verify the data source label shows your custom folder
 5. Select desired chromophores from the **Chromophores** menu
-6. Adjust solver (LS/NNLS) and background value if needed
-7. Click **▶ Run Unmixing** to process all samples
-8. Use the tabs (Maps, Pixel Inspector, Diagnostics, Reflectance Stats, Chromophore Bar Charts) to view results
-9. Click **💾 Save Results** to export component maps and arrays
+6. Adjust solver (`ls`, `nnls`, `mu_a`, `iterative`, or `km`) and background/scattering settings if needed
+7. Optionally enable **Bilirubin Index** to compute the `OD450 - OD517` derived map; leave `k_corr` empty unless your calibration was fitted with the same correction
+8. Optionally enable **Apply Calibration**, click **Load Calibration...**, and choose a calibration JSON such as `data/calibrations/bilirubin_a1a6_log_linear.json`
+9. Click **▶ Run Unmixing** to process all samples
+10. Use the tabs (Maps, Pixel Inspector, Diagnostics, Reflectance Stats, Chromophore Bar Charts) to view results. Bilirubin index/calibration maps appear under **Derived Maps**; the Bar Charts tab adds a separate diagnostic subplot when available.
+11. Click **💾 Save Results** to export component maps, derived maps, arrays, and metadata
 
 ### Common Errors and Solutions
 
@@ -211,3 +255,102 @@ custom_data_folder/
 | `Required directory 'chromophores/' not found` | Missing chromophores directory | Create `chromophores/` and add `.csv` files |
 | `Directory 'chromophores/' contains no .csv files` | Empty chromophores directory | Add at least one `.csv` file with extinction coefficients |
 | `LED {wl} nm not found in ...` | Wavelength mismatch | Ensure LED wavelengths in `leds_emission.csv` match your image cube filenames |
+| `Bilirubin index requires 450 nm and 517 nm bands` | Required bands missing | Use an image set containing both 450 nm and 517 nm bands |
+| `Bilirubin index Hb correction requires a 671 nm reference band` | `k_corr` was entered but 671 nm is unavailable | Leave `k_corr` empty or use a dataset with 671 nm |
+| `Enable Bilirubin Index before applying calibration` | Calibration was checked without the index | Check **Bilirubin Index** first |
+| `Load a calibration file to apply bilirubin calibration` | Calibration was checked but no JSON was loaded | Click **Load Calibration...** and choose a calibration JSON |
+| `Bilirubin index k correction must be a number` | Invalid `k_corr` input | Enter a non-negative number or leave the field empty |
+
+## Kubelka-Munk Solver Notes
+
+The **Solver** dropdown includes `km`, a Kubelka-Munk diffuse-reflectance alternative to the OD overlap-matrix solvers. It is useful for testing physically motivated reflectance-to-absorption behavior in scattering phantoms.
+
+Important behavior:
+
+- `km` uses the absorption matrix, not the OD overlap matrix.
+- `km` uses the fixed-scattering toolbar parameters.
+- background fitting is disabled for `km`.
+- extinction values extrapolated below zero are clipped for the KM path.
+
+Known bilirubin limitation: with the current 8-band LED set (`450, 517, 671, 775, 803, 851, 888, 939 nm`), KM+NNLS does **not** robustly recover `bili_agat` as a chromophore concentration map in the A1-A6 phantoms. Seeing a zero-valued `bili_agat` map can be expected. Use the **Bilirubin Index** derived map for practical bilirubin contrast.
+
+## Bilirubin Diagnostic Index
+
+Enable the toolbar checkbox:
+
+```text
+Bilirubin Index
+```
+
+to compute a derived map:
+
+```text
+Bilirubin Index (OD450-OD517)
+```
+
+This map is dimensionless. Higher values indicate stronger bilirubin-like absorption near 450 nm relative to 517 nm within the same imaging/calibration domain.
+
+The optional `k_corr` text input applies:
+
+```text
+OD450 - OD517 - k_corr * OD671
+```
+
+Leave `k_corr` empty for the default raw index. Only use a non-empty `k_corr` when your calibration was fitted with the same correction. The shipped calibration uses `k_corr = None`.
+
+## Bilirubin Calibration Files
+
+Calibration is optional and uses JSON files. The shipped A1-A6 phantom calibration is located at:
+
+```text
+data/calibrations/bilirubin_a1a6_log_linear.json
+```
+
+To use it in the UI:
+
+1. check **Bilirubin Index**;
+2. check **Apply Calibration**;
+3. click **Load Calibration...**;
+4. select `data/calibrations/bilirubin_a1a6_log_linear.json`;
+5. run the pipeline again.
+
+This adds derived maps:
+
+```text
+Bilirubin est. (calibrated, see disclaimer)
+Bilirubin est. clamp mask
+```
+
+The clamp mask indicates where the calibrated estimate was clipped to the calibration domain boundary. Large clamped regions mean the calibration is being applied outside its useful domain.
+
+To generate a calibration JSON from a phantom series with known bilirubin values, use:
+
+```bash
+python scripts/bilirubin_index_report.py \
+  --root /path/to/phantom_root \
+  --save-calibration my_bilirubin_calibration.json
+```
+
+You can also apply an existing calibration in the report script:
+
+```bash
+python scripts/bilirubin_index_report.py \
+  --root /path/to/phantom_root \
+  --load-calibration data/calibrations/bilirubin_a1a6_log_linear.json
+```
+
+### Calibration caveats
+
+- The shipped calibration was fitted on the A1-A6 DNG-derived Lipofundin/Hb/bilirubin phantom series.
+- Calibration domain: approximately `8.4–270 µM` bilirubin with Hb fixed at `100 µM`, using the same camera/LED processing setup.
+- The in-sample fit is strong (`R² ≈ 0.94`), but leave-one-out validation is poor/negative on the six-point set.
+- Treat calibrated maps as domain-limited diagnostic estimates, not validated physical concentrations.
+
+## Export Metadata for Bilirubin Maps
+
+When bilirubin index or calibrated estimate maps are exported, each sample's `metadata.json` includes bilirubin-specific notes:
+
+- `bilirubin_index_note` — states that `OD450 - OD517` is a dimensionless diagnostic.
+- `bilirubin_calibration` — stores calibration coefficients, fit quality, calibration domain, validation status, disclaimer, and clamp counts when applicable.
+
+Always share `metadata.json` with exported bilirubin maps so downstream users see the calibration domain and disclaimer.

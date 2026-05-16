@@ -345,6 +345,20 @@ No:
 
 ---
 
+## Current Extensions Beyond Version 1
+
+The implemented application now includes features beyond this original minimal specification:
+
+- solver methods: `ls`, `nnls`, `mu_a`, `iterative`, and `km`;
+- fixed-scattering absorption-matrix solvers for `mu_a`, `iterative`, and `km`;
+- Kubelka-Munk reflectance conversion for the `km` solver;
+- derived maps `THb`, `StO2`, optional `Bilirubin Index (OD450-OD517)`, optional calibrated bilirubin estimate, and a clamp mask;
+- calibration JSON support in `app/core/calibration.py` and `scripts/bilirubin_index_report.py`.
+
+Bilirubin-index and calibrated estimate maps are diagnostic outputs. They are not validated physical concentration maps unless separately calibrated and validated for the same imaging domain.
+
+---
+
 ## Final Goal
 
 **Folder → Reflectance → Optical Density → Overlap Matrix → Least Squares → Chromophore Maps**
