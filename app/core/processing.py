@@ -13,7 +13,7 @@ from scipy.optimize import nnls
 logger = logging.getLogger(__name__)
 
 
-SUPPORTED_UNMIXING_METHODS: tuple[str, ...] = ("ls", "nnls", "mu_a")
+SUPPORTED_UNMIXING_METHODS: tuple[str, ...] = ("ls", "nnls", "mu_a", "km")
 
 # Fixed scattering prior used by the mu_a inversion solver.
 SCATTERING_REFERENCE_WAVELENGTH_NM: float = 500.0
@@ -591,6 +591,7 @@ def build_absorption_matrix(
     chromophore_spectra: dict,
     led_wavelengths: list,
     chromophore_names: list = None,
+    clip_negative_extinction: bool = False,
 ) -> tuple:
     """
     Build the band-averaged absorption basis E ∈ R^{N_LED × N_chromophores}.
@@ -598,6 +599,11 @@ def build_absorption_matrix(
     Each row is the LED-weighted extinction overlap for one band:
 
         E[n, k] = ∫ phi_n(λ) * ε_k(λ) dλ
+
+    If ``clip_negative_extinction`` is true, interpolated/extrapolated negative
+    extinction values are clipped to zero before band integration. This is useful
+    for short-range spectra such as bilirubin data that should have negligible
+    long-wavelength absorption rather than negative extrapolated absorption.
     """
     common_wl, led_profiles = _normalized_led_profiles(
         led_emission_wl,
@@ -613,7 +619,13 @@ def build_absorption_matrix(
     E = np.zeros((len(led_wavelengths), len(chromophore_names)))
     for i, phi in enumerate(led_profiles):
         for j, name in enumerate(chromophore_names):
-            E[i, j] = np.trapezoid(phi * chrom_interp[name], common_wl)
+            coeff = chrom_interp[name]
+            if clip_negative_extinction:
+                coeff = np.clip(coeff, 0.0, None)
+            E[i, j] = np.trapezoid(phi * coeff, common_wl)
+
+    if clip_negative_extinction:
+        E = np.clip(E, 0.0, None)
 
     return E, chromophore_names
 
@@ -994,6 +1006,7 @@ def solve_unmixing(
     A: np.ndarray,
     method: str = "ls",
     mus_prime: np.ndarray | None = None,
+    reflectance: np.ndarray | None = None,
 ) -> tuple:
     """
     Pixelwise spectral unmixing.
@@ -1008,9 +1021,12 @@ def solve_unmixing(
         "ls" for unconstrained least-squares (numpy.linalg.lstsq)
         "nnls" for non-negative least-squares (scipy.optimize.nnls)
         "mu_a" for fixed-scattering OD→μa inversion followed by least-squares
+        "km" for Kubelka-Munk reflectance→μa inversion followed by least-squares
     mus_prime : np.ndarray, optional
-        Required for ``method="mu_a"``. Band-averaged reduced scattering prior
-        with one value per LED band.
+        Required for ``method="mu_a"`` and ``method="km"``. Band-averaged
+        reduced scattering prior with one value per LED band.
+    reflectance : np.ndarray, optional
+        Required for ``method="km"``. Reflectance cube with shape (H, W, N_bands).
 
     Returns
     -------
@@ -1024,6 +1040,12 @@ def solve_unmixing(
         if mus_prime is None:
             raise ValueError("mus_prime is required for method='mu_a'.")
         return _solve_unmixing_mu_a(od_cube, A, mus_prime)
+    if method == "km":
+        if mus_prime is None:
+            raise ValueError("mus_prime is required for method='km'.")
+        if reflectance is None:
+            raise ValueError("reflectance is required for method='km'.")
+        return solve_unmixing_km(reflectance, A, mus_prime)
     if method == "ls":
         return _solve_unmixing_ls(od_cube, A)
     raise ValueError(
@@ -1178,6 +1200,176 @@ def _solve_unmixing_mu_a(
     rmse_map = np.sqrt(np.mean(residual_per_pixel ** 2, axis=2))
 
     return concentrations, rmse_map, fitted
+
+
+def _reflectance_to_mu_a_km(
+    reflectance: np.ndarray,
+    mus_prime: np.ndarray,
+    eps: float = 1e-10,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Convert diffuse reflectance to absorption with the Kubelka-Munk remission function.
+
+    The first implementation uses the common semi-infinite KM relationship
+    F(R) = K / S = (1 - R)^2 / (2R), with K ≈ 2μa and S ≈ μs'.
+    """
+    reflectance_arr = np.asarray(reflectance, dtype=float)
+    mus_prime_arr = np.asarray(mus_prime, dtype=float)
+    R = np.clip(reflectance_arr, eps, 1.0 - eps)
+    F = (1.0 - R) ** 2 / (2.0 * R)
+    mu_a = F * mus_prime_arr / 2.0
+    valid = (
+        np.isfinite(reflectance_arr)
+        & (reflectance_arr > 0.0)
+        & (reflectance_arr < 1.0)
+        & np.isfinite(mus_prime_arr)
+        & (mus_prime_arr > 0)
+        & np.isfinite(mu_a)
+        & (mu_a >= 0)
+    )
+    return np.where(valid, mu_a, 0.0), valid
+
+
+def _mu_a_to_reflectance_km(
+    mu_a: np.ndarray,
+    mus_prime: np.ndarray,
+    eps: float = 1e-10,
+) -> np.ndarray:
+    """Map absorption back to diffuse reflectance using the same KM model."""
+    mu_a_clipped = np.clip(np.asarray(mu_a, dtype=float), 0.0, None)
+    mus_prime_arr = np.asarray(mus_prime, dtype=float)
+    valid = np.isfinite(mu_a_clipped) & np.isfinite(mus_prime_arr) & (mus_prime_arr > eps)
+    ratio = np.zeros_like(mu_a_clipped, dtype=float)
+    np.divide(
+        2.0 * mu_a_clipped,
+        mus_prime_arr,
+        out=ratio,
+        where=valid,
+    )
+    reflectance = 1.0 + ratio - np.sqrt(np.clip(ratio ** 2 + 2.0 * ratio, 0.0, None))
+    return np.clip(np.nan_to_num(reflectance, nan=0.0, posinf=0.0, neginf=0.0), eps, 1.0)
+
+
+def solve_unmixing_km(
+    reflectance: np.ndarray,
+    A: np.ndarray,
+    mus_prime: np.ndarray,
+) -> tuple:
+    """
+    Kubelka-Munk reflectance→μa inversion followed by NNLS chromophore fit.
+
+    Parameters
+    ----------
+    reflectance : (H, W, N_bands)
+        Reflectance cube, typically from ``compute_reflectance``.
+    A : np.ndarray
+        Band-averaged absorption basis with one row per reflectance band.
+    mus_prime : np.ndarray
+        Band-averaged reduced scattering prior with one value per band.
+
+    Returns
+    -------
+    concentrations : (H, W, N_components)
+    residual_map : (H, W) RMSE in optical-density space for GUI compatibility
+    fitted_od : (H, W, N_bands) reconstructed OD from the fitted KM reflectance
+    """
+    if mus_prime is None:
+        raise ValueError("mus_prime is required for method='km'.")
+
+    reflectance = np.asarray(reflectance, dtype=float)
+    A = np.clip(np.asarray(A, dtype=float), 0.0, None)
+    if reflectance.ndim != 3:
+        raise ValueError("reflectance must be a 3-D array (H, W, N_bands).")
+
+    H, W, N = reflectance.shape
+    n_components = A.shape[1]
+    mus_prime = np.asarray(mus_prime, dtype=float).reshape(-1)
+
+    if A.shape[0] != N:
+        raise ValueError(
+            "For method='km', the absorption basis must have one row per reflectance band."
+        )
+    if mus_prime.shape[0] != N:
+        raise ValueError(
+            "For method='km', mus_prime must have one entry per reflectance band."
+        )
+    if not np.any(np.isfinite(mus_prime) & (mus_prime > 0)):
+        raise ValueError("For method='km', mus_prime must contain positive finite values.")
+
+    Y = reflectance.reshape(-1, N)
+    X = np.zeros((n_components, Y.shape[0]))
+    fitted_mu_a = np.zeros((Y.shape[0], N))
+
+    for i, reflectance_vec in enumerate(Y):
+        mu_a_vec, valid = _reflectance_to_mu_a_km(reflectance_vec, mus_prime)
+        if np.any(valid):
+            X[:, i], _ = nnls(A[valid, :], mu_a_vec[valid])
+        fitted_mu_a[i, :] = A @ X[:, i]
+
+    fitted_reflectance = _mu_a_to_reflectance_km(
+        fitted_mu_a,
+        mus_prime[np.newaxis, :],
+    ).reshape(H, W, N)
+    fitted_od = compute_optical_density(fitted_reflectance)
+    measured_od = compute_optical_density(reflectance)
+    concentrations = X.T.reshape(H, W, n_components)
+    residual_per_pixel = measured_od - fitted_od
+    rmse_map = np.sqrt(np.mean(residual_per_pixel ** 2, axis=2))
+
+    return concentrations, rmse_map, fitted_od
+
+
+def compute_bilirubin_index(
+    reflectance: np.ndarray,
+    wavelength_index_450: int = 0,
+    wavelength_index_517: int = 1,
+    wavelength_index_ref: int | None = 2,
+    k_hb_correction: float | None = None,
+    eps: float = 1e-10,
+) -> dict:
+    """Compute a two-band bilirubin diagnostic index from reflectance.
+
+    The primary index is the optical-density difference ``OD450 - OD517``.
+    This is a diagnostic/ratiometric map, not a physically calibrated
+    concentration map. If ``k_hb_correction`` and ``wavelength_index_ref`` are
+    provided, an optional Hb-proxy correction subtracts ``k * OD_ref``.
+    """
+    reflectance = np.asarray(reflectance, dtype=float)
+    if reflectance.ndim != 3:
+        raise ValueError("reflectance must be a 3-D array (H, W, N_bands).")
+    n_bands = reflectance.shape[-1]
+    for name, idx in (
+        ("wavelength_index_450", wavelength_index_450),
+        ("wavelength_index_517", wavelength_index_517),
+    ):
+        if idx < 0 or idx >= n_bands:
+            raise ValueError(f"{name} is out of bounds for {n_bands} bands.")
+    if wavelength_index_ref is not None and (
+        wavelength_index_ref < 0 or wavelength_index_ref >= n_bands
+    ):
+        raise ValueError(f"wavelength_index_ref is out of bounds for {n_bands} bands.")
+
+    od_cube = compute_optical_density(reflectance, eps=eps)
+    bi_raw = od_cube[:, :, wavelength_index_450] - od_cube[:, :, wavelength_index_517]
+    od_ref = None
+    bi_corrected = bi_raw
+    if k_hb_correction is not None:
+        if wavelength_index_ref is None:
+            raise ValueError("wavelength_index_ref is required when k_hb_correction is set.")
+        od_ref = od_cube[:, :, wavelength_index_ref]
+        bi_corrected = bi_raw - float(k_hb_correction) * od_ref
+
+    return {
+        "bi_raw": bi_raw,
+        "bi_corrected": bi_corrected,
+        "od_ref": od_ref,
+        "indices_used": {
+            "450": int(wavelength_index_450),
+            "517": int(wavelength_index_517),
+            "ref": None if wavelength_index_ref is None else int(wavelength_index_ref),
+        },
+        "k_hb_correction": k_hb_correction,
+    }
 
 
 # ---------------------------------------------------------------------------
