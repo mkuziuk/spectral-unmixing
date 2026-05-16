@@ -1,0 +1,42 @@
+{
+  "calibration_domain": {
+    "bilirubin_uM_max": 270.0,
+    "bilirubin_uM_min": 8.4375,
+    "dataset": "liquid_phantoms_for_unmixing_dng_cropped",
+    "hb_uM": 100.0,
+    "phantoms": [
+      "A1",
+      "A2",
+      "A3",
+      "A4",
+      "A5",
+      "A6"
+    ],
+    "wavelengths": [
+      450,
+      517,
+      671,
+      775,
+      803,
+      851,
+      888,
+      939
+    ]
+  },
+  "coefficients": {
+    "intercept": -0.00023966062604522856,
+    "slope": 0.014050850039644213
+  },
+  "disclaimer": "\u26a0 DISCLAIMER: This is a domain-calibrated diagnostic estimate from a two-band bilirubin index, not an absolute physical bilirubin concentration and not a spectral-unmixing result. Interpret only within the stated calibration domain.",
+  "fit_quality": {
+    "in_sample_r2": 0.9424140571915154,
+    "loo_r2": -4.447432940335644,
+    "n_samples": 6,
+    "rmse_uM": 58.610084481151205
+  },
+  "fit_type": "log_linear",
+  "independently_validated": false,
+  "index_formula": "OD450 - OD517",
+  "k_hb_correction": null,
+  "schema_version": 1
+}
