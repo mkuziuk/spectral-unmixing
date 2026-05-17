@@ -1,9 +1,9 @@
 [project]
 name = "spectral-unmixing"
-version = "0.2.2"
+version = "0.2.5"
 description = "A biomedical hyperspectral unmixing application"
 authors = [
-    { name = "Mikhail", email = "mikhail@example.com" }
+    { name = "mkuziuk", email = "mikhail.kuzyuk@gmail.com" }
 ]
 dependencies = [
     "numpy",

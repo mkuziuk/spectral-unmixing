@@ -11,17 +11,18 @@ A biomedical hyperspectral desktop application that processes raw multidimension
 
 By providing an intuitive, minimal Graphical User Interface (GUI), this application allows analyzing samples without deep coding knowledge.
 
-## Release 0.2.2
+## Release 0.2.5
 
-Release `0.2.2` removes the legacy tkinter rollback path and keeps **PySide6** as the single supported desktop UI.
+Release `0.2.5` adds the Kubelka-Munk solver branch features while keeping **PySide6** as the single supported desktop UI.
 
 - `python app/main.py` launches the PySide6 application directly
-- the old `--legacy-tk` flag and `SPECTRAL_UNMIXING_LEGACY_TK` environment fallback are no longer supported
-- release packaging and documentation now target the Qt application only
+- solver options now include `km` for a fixed-scattering Kubelka-Munk reflectance workflow
+- the toolbar can compute a model-free **Bilirubin Index** derived map (`OD450 - OD517`)
+- optional bilirubin calibration JSON files can create domain-calibrated diagnostic estimate maps
+- the Chromophore Bar Charts tab can show bilirubin diagnostic summaries when bilirubin derived maps are present
+- release packaging and documentation target the Qt application only
 
 ## Capabilities
-
-> Development note: branch `feature/kubelka-munk-solver` adds a Kubelka-Munk solver, a model-free bilirubin diagnostic index, and optional domain calibration for Lipofundin/Hb/bilirubin phantoms.
 
 * **Automated Data Processing**: Point the application to a root directory containing subfolders for each raw sample alongside reference (`ref/`) and dark-current (`dark_ref/`) folders. 
 * **Reflectance and Optical Density Extractor**: Performs pixelwise calculation from raw spectral intensity data directly.

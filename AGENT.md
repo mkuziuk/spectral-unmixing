@@ -6,7 +6,7 @@ Guidance for coding agents working in this repository.
 
 This is a Python desktop application for biomedical hyperspectral spectral unmixing. It loads image cubes, computes reflectance and optical density, builds spectral model matrices from LED/chromophore/pathlength CSVs, solves chromophore concentration maps, and displays/exports results through a PySide6 GUI.
 
-PySide6 is the only supported UI for release `0.2.2+`; do not reintroduce the removed tkinter/legacy fallback.
+PySide6 is the only supported UI for release `0.2.5+`; do not reintroduce the removed tkinter/legacy fallback.
 
 ## Orchestration and subagents
 
