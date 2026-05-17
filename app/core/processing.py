@@ -500,6 +500,16 @@ def build_fixed_scattering_spectrum(
     )
     mu_s *= params["lipofundin_fraction"]
     mu_s_prime = mu_s * (1.0 - params["anisotropy_g"])
+
+    # Warn if non-finite values are being silently replaced.
+    if not np.all(np.isfinite(mu_s_prime)):
+        n_bad = int(np.sum(~np.isfinite(mu_s_prime)))
+        logger.warning(
+            "build_fixed_scattering_spectrum: %d non-finite value(s) "
+            "replaced with 0.0; check scattering parameters.",
+            n_bad,
+        )
+
     return np.nan_to_num(mu_s_prime, nan=0.0, posinf=0.0, neginf=0.0)
 
 
@@ -526,6 +536,31 @@ def compute_reflectance(
     -------
     reflectance : (H, W, N_bands)
     """
+    # --- Shape validation ---------------------------------------------------
+    sample_cube = np.asarray(sample_cube, dtype=float)
+    ref_cube = np.asarray(ref_cube, dtype=float)
+    dark_cube = np.asarray(dark_cube, dtype=float)
+
+    for name, arr in (
+        ("sample_cube", sample_cube),
+        ("ref_cube", ref_cube),
+        ("dark_cube", dark_cube),
+    ):
+        if arr.ndim != 3:
+            raise ValueError(f"{name} must be a 3-D array (H, W, N_bands), got ndim={arr.ndim}.")
+        if arr.shape[-1] == 0:
+            raise ValueError(f"{name} must have at least one spectral band.")
+        if arr.shape[0] == 0 or arr.shape[1] == 0:
+            raise ValueError(f"{name} spatial dimensions must be >= 1.")
+
+    shape = sample_cube.shape
+    if ref_cube.shape != shape or dark_cube.shape != shape:
+        raise ValueError(
+            f"Shape mismatch: sample_cube {sample_cube.shape}, "
+            f"ref_cube {ref_cube.shape}, dark_cube {dark_cube.shape} "
+            f"(all must be identical)."
+        )
+    # -----------------------------------------------------------------------
     numerator = sample_cube - dark_cube
     denominator = ref_cube - dark_cube + eps
     reflectance = numerator / denominator
@@ -561,9 +596,21 @@ def _normalized_led_profiles(
     profiles: list[np.ndarray] = []
 
     for led_nm in led_wavelengths:
+        if led_nm not in led_emission:
+            raise KeyError(
+                f"LED emission data missing for centre wavelength {led_nm}. "
+                f"Available keys: {list(led_emission)}."
+            )
         phi = np.asarray(led_emission[led_nm], dtype=float).copy()
         area = np.trapezoid(phi, common_wl)
-        if area > 0:
+        if area <= 0:
+            logger.warning(
+                "LED profile for %s nm has zero or negative area (%.3g); "
+                "normalisation is skipped.",
+                led_nm,
+                float(area),
+            )
+        else:
             phi /= area
         profiles.append(phi)
 
@@ -705,9 +752,20 @@ def build_overlap_matrix(
     )
 
     # Interpolate penetration depth onto common grid
+    pen_wl_arr = np.asarray(penetration_wl, dtype=float).reshape(-1)
+    pen_depth_arr = np.asarray(penetration_depth, dtype=float).reshape(-1)
+    if len(pen_wl_arr) != len(pen_depth_arr):
+        raise ValueError(
+            "penetration_wl and penetration_depth must have the same length."
+        )
+    if not np.all(np.isfinite(pen_wl_arr)):
+        raise ValueError("penetration_wl contains non-finite values.")
+    if not np.all(np.isfinite(pen_depth_arr)):
+        raise ValueError("penetration_depth contains non-finite values.")
+
     pen_wl_prepared, pen_depth_prepared = _prepare_interp_axis(
-        penetration_wl,
-        penetration_depth,
+        pen_wl_arr,
+        pen_depth_arr,
     )
     f_depth = interp1d(
         pen_wl_prepared, pen_depth_prepared,
@@ -1008,16 +1066,17 @@ def solve_unmixing_iterative(
         max(float(initial_concentration), 0.0),
         dtype=float,
     )
-    l_curr = estimate_effective_pathlength(
-        concentrations=current_conc_map,
-        chromophore_names=chrom_names,
-        chromophore_spectra=chromophore_spectra,
-        common_wl=common_wl,
-        scattering_parameters=params,
-        chromophore_scale=chromophore_scale,
-    )
 
     try:
+        l_curr = estimate_effective_pathlength(
+            concentrations=current_conc_map,
+            chromophore_names=chrom_names,
+            chromophore_spectra=chromophore_spectra,
+            common_wl=common_wl,
+            scattering_parameters=params,
+            chromophore_scale=chromophore_scale,
+        )
+
         for it in range(max_iter):
             A_iter, _ = build_overlap_matrix(
                 led_emission_wl=common_wl,
@@ -1094,10 +1153,15 @@ def solve_unmixing_iterative(
             prev_mean_rmse = mean_rmse
             l_curr = l_next
 
-    except Exception as exc:
+    except (ValueError, RuntimeError) as exc:
         stop_reason = "iterative_error"
-        iterative_error = str(exc)
+        iterative_error = f"{type(exc).__name__}: {exc}"
         fallback_used = True
+        logger.error(
+            "Iterative unmixing error at iteration %d: %s",
+            len(history) + 1,
+            iterative_error,
+        )
         if best_concentrations is not None:
             fallback_reason = (
                 "Iterative unmixing stopped after an error; the best successful iterate was used."
@@ -1108,9 +1172,31 @@ def solve_unmixing_iterative(
             A_last = best_A
             pathlength_used = best_pathlength
         else:
-            fallback_reason = "Iterative unmixing failed; static overlap matrix fallback was used."
-            concentrations, rmse_map, fitted_od = _solve_unmixing_nnls(od_cube, A_last)
-            pathlength_used = l_curr
+            fallback_reason = (
+                "Iterative unmixing failed before any successful iterate; "
+                "static overlap matrix fallback was used."
+            )
+            try:
+                concentrations, rmse_map, fitted_od = _solve_unmixing_nnls(od_cube, A_last)
+            except Exception as fallback_exc:
+                logger.error(
+                    "Static fallback also failed: %s",
+                    fallback_exc,
+                )
+                raise RuntimeError(
+                    f"Iterative unmixing error: {iterative_error}. "
+                    f"Static fallback also failed: {fallback_exc}"
+                ) from fallback_exc
+            pathlength_used = common_wl.copy()
+
+    except Exception as exc:
+        logger.error(
+            "Unexpected exception in iterative unmixing: %s",
+            exc,
+        )
+        raise RuntimeError(
+            f"Unexpected error in iterative unmixing: {exc}"
+        ) from exc
 
     if best_concentrations is not None and stop_reason != "iterative_error":
         concentrations = best_concentrations
