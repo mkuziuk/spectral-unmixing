@@ -101,25 +101,46 @@ $$
 It then solves the chromophore coefficients by NNLS against the band-averaged absorption matrix. In the GUI, `km` uses the fixed-scattering controls and disables the background column.
 
 ### 6. Bilirubin Index and Forward Calibration
-The optional bilirubin diagnostic map is computed from reflectance as:
+
+The bilirubin diagnostic map exploits the steep drop in bilirubin's absorption spectrum between 450 nm and 517 nm, compared with hemoglobin's much flatter spectrum across the same interval.
+
+**Spectral justification.** The molar extinction coefficients (ε, cm⁻¹ M⁻¹) from authoritative sources are:
+
+| λ | Bilirubin ε¹ | HbO₂ ε² | Hb ε² |
+|---:|---:|---:|---:|
+| 450 nm | ≈ 54,900 | 62,816 | 103,292 |
+| 517 nm | ≈ 485 | ≈ 21,756 | ≈ 29,845 |
+| Ratio 450/517 | **~113 : 1** | ~2.9 : 1 | ~3.5 : 1 |
+
+![Bilirubin and hemoglobin extinction spectra from OMLC source data](assets/bilirubin_hemoglobin_extinction_omlc.png)
+
+**Figure:** Verified source spectra from OMLC/PhotochemCAD and OMLC hemoglobin tables, with the two bilirubin-index bands marked. The plot justifies the wavelength choice: bilirubin extinction falls by about two orders of magnitude from 450 nm to 517 nm, whereas Hb/HbO₂ changes by only a few-fold. The plot is **not** the phantom calibration curve; calibration also depends on concentration, scattering, LED bandwidth, camera response, and the A1–A6 phantom preparation.
+
+Bilirubin extinction falls ≈ 100× between the two wavelengths; hemoglobin extinction falls only ≈ 3×. Therefore the differential optical density
 
 $$
-BI = OD_{450} - OD_{517} = \log_{10}\left(\frac{R_{517}}{R_{450}}\right)
+BI = OD_{450} - OD_{517} = \log_{10}\!\left(\frac{R_{517}}{R_{450}}\right)
 $$
 
-An optional Hb correction can be applied as:
+responds strongly to bilirubin concentration and only weakly to hemoglobin (as long as Hb is approximately constant across samples).
+
+> **Sources:** Bilirubin ε — PhotochemCAD / Agati & Fusi (1990), redistributed by Scott Prahl, OMLC [[data]](https://omlc.org/spectra/PhotochemCAD/data/119-abs.txt). Hemoglobin ε — Prahl compilation from Gratzer (MRC London) and Kollias (Harvard) [[table]](https://omlc.org/spectra/hemoglobin/summary.html). Clinical dual-wavelength precedent — Weiser et al., *Clin. Chem.* 32:598 (1986) [[paper]](https://academic.oup.com/clinchem/article-abstract/32/4/598/5652506).
+
+**Hb correction.** An optional correction can be applied:
 
 $$
 BI_{corrected} = OD_{450} - OD_{517} - k\,OD_{671}
 $$
 
-A calibration JSON can convert the index to a domain-calibrated estimate using a log-linear model:
+**Calibration.** A calibration JSON can convert the index to a domain-calibrated estimate using a log-linear model:
 
 $$
 BI = \alpha\log_{10}([bilirubin]) + \beta
 $$
 
-⚠️ This bilirubin output is a two-band diagnostic. It is not a spectral-unmixing concentration and should not be treated as a validated physical bilirubin concentration unless independently calibrated and validated for the same imaging setup and phantom domain.
+The bilirubin output is a two-band diagnostic. It is not a spectral-unmixing concentration and should not be treated as a validated physical bilirubin concentration unless independently calibrated and validated for the same imaging setup and phantom domain.
+
+> **Solvent caveat:** The bilirubin spectrum is measured in chloroform; in aqueous or protein-bound environments the peak can shift 5–15 nm. The differential argument holds regardless of solvent because the steep bilirubin falloff persists relative to the flatter hemoglobin spectrum.
 
 ---
 
