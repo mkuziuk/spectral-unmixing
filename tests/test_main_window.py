@@ -19,6 +19,8 @@ import sys
 import unittest
 from pathlib import Path
 
+import numpy as np
+
 PROJECT_ROOT = Path(__file__).parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -645,16 +647,14 @@ class TestQt003Toolbar(unittest.TestCase):
 
         self.assertEqual(snapshot["solver_method"], "mu_a")
         self.assertFalse(snapshot["include_background"])
-        self.assertEqual(
-            snapshot["scattering_parameters"],
-            {
-                "lambda0_nm": 510.0,
-                "mu_s_500_cm1": 130.0,
-                "power_b": 1.2,
-                "lipofundin_fraction": 0.35,
-                "anisotropy_g": 0.78,
-            },
-        )
+        scattering = snapshot["scattering_parameters"]
+        self.assertEqual(scattering["model"], "power_law")
+        self.assertEqual(scattering["spectrum_path"], "")
+        self.assertEqual(scattering["lambda0_nm"], 510.0)
+        self.assertEqual(scattering["mu_s_500_cm1"], 130.0)
+        self.assertEqual(scattering["power_b"], 1.2)
+        self.assertEqual(scattering["lipofundin_fraction"], 0.35)
+        self.assertEqual(scattering["anisotropy_g"], 0.78)
 
     def test_iterative_snapshot_captures_scattering_parameters(self):
         """Iterative snapshot should include validated fixed-scattering parameters."""
@@ -722,16 +722,14 @@ class TestQt003Toolbar(unittest.TestCase):
                 "slope_end": 0.1,
             },
         )
-        self.assertEqual(
-            snapshot["scattering_parameters"],
-            {
-                "lambda0_nm": 505.0,
-                "mu_s_500_cm1": 125.0,
-                "power_b": 1.1,
-                "lipofundin_fraction": 0.30,
-                "anisotropy_g": 0.79,
-            },
-        )
+        scattering = snapshot["scattering_parameters"]
+        self.assertEqual(scattering["model"], "power_law")
+        self.assertEqual(scattering["spectrum_path"], "")
+        self.assertEqual(scattering["lambda0_nm"], 505.0)
+        self.assertEqual(scattering["mu_s_500_cm1"], 125.0)
+        self.assertEqual(scattering["power_b"], 1.1)
+        self.assertEqual(scattering["lipofundin_fraction"], 0.30)
+        self.assertEqual(scattering["anisotropy_g"], 0.79)
         self.assertEqual(
             snapshot["iterative_parameters"],
             {
@@ -879,6 +877,93 @@ class TestQt025WarningsSidebar(unittest.TestCase):
         widget = self.impl.findChild(QTextEdit, WARNINGS_TEXT_OBJECT_NAME)
         self.assertIsNotNone(widget)
         self.assertEqual(widget.toPlainText(), "Single warning")
+
+    def test_scattering_spectrum_mode_hides_power_law_fields(self):
+        """Spectrum model should hide power-law coefficient entries."""
+        import tempfile
+        from PySide6.QtTest import QTest
+        from PySide6.QtWidgets import QComboBox, QLineEdit
+        from app.gui_qt.main_window import (
+            SCATTERING_LAMBDA0_ENTRY_OBJECT_NAME,
+            SCATTERING_MODEL_COMBO_OBJECT_NAME,
+            SCATTERING_MU_S_500_ENTRY_OBJECT_NAME,
+            SCATTERING_POWER_ENTRY_OBJECT_NAME,
+            SOLVER_COMBO_OBJECT_NAME,
+        )
+
+        self.impl.show()
+        QTest.qWait(10)
+        solver_combo = self.impl.findChild(QComboBox, SOLVER_COMBO_OBJECT_NAME)
+        solver_combo.setCurrentText("mu_a")
+        QTest.qWait(10)
+
+        model_combo = self.impl.findChild(QComboBox, SCATTERING_MODEL_COMBO_OBJECT_NAME)
+        self.assertIsNotNone(model_combo)
+        model_combo.setCurrentText("spectrum")
+        QTest.qWait(10)
+
+        lambda0_entry = self.impl.findChild(QLineEdit, SCATTERING_LAMBDA0_ENTRY_OBJECT_NAME)
+        mu_s_entry = self.impl.findChild(QLineEdit, SCATTERING_MU_S_500_ENTRY_OBJECT_NAME)
+        power_entry = self.impl.findChild(QLineEdit, SCATTERING_POWER_ENTRY_OBJECT_NAME)
+        self.assertFalse(lambda0_entry.isVisible())
+        self.assertFalse(mu_s_entry.isVisible())
+        self.assertFalse(power_entry.isVisible())
+
+    def test_mu_a_snapshot_captures_spectrum_scattering_parameters(self):
+        """Run snapshot should include validated spectrum scattering parameters."""
+        import tempfile
+        from PySide6.QtWidgets import QComboBox, QLineEdit
+        from app.gui_qt.main_window import (
+            SCATTERING_ANISOTROPY_ENTRY_OBJECT_NAME,
+            SCATTERING_LIPOFUNDIN_ENTRY_OBJECT_NAME,
+            SCATTERING_MODEL_COMBO_OBJECT_NAME,
+            SOLVER_COMBO_OBJECT_NAME,
+        )
+
+        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False) as handle:
+            handle.write("wavelength_nm,mu_s_prime_cm-1\n")
+            handle.write("500.0,100.03\n")
+            handle.write("700.0,50.5\n")
+            spectrum_path = handle.name
+
+        try:
+            self.window.root_dir = "/tmp/root"
+            self.window.data_dir = "/tmp/data"
+            self.window.folder_info = {"wavelengths": [500, 550]}
+            self.window.set_chromophores(["Hb"])
+
+            solver_combo = self.impl.findChild(QComboBox, SOLVER_COMBO_OBJECT_NAME)
+            solver_combo.setCurrentText("mu_a")
+
+            model_combo = self.impl.findChild(QComboBox, SCATTERING_MODEL_COMBO_OBJECT_NAME)
+            model_combo.setCurrentText("spectrum")
+            self.window._scattering_spectrum_path = spectrum_path
+
+            lip_entry = self.impl.findChild(QLineEdit, SCATTERING_LIPOFUNDIN_ENTRY_OBJECT_NAME)
+            g_entry = self.impl.findChild(QLineEdit, SCATTERING_ANISOTROPY_ENTRY_OBJECT_NAME)
+            lip_entry.setText("0.35")
+            g_entry.setText("0.78")
+
+            snapshot = self.window._build_config_snapshot()
+            scattering = snapshot["scattering_parameters"]
+            self.assertEqual(scattering["model"], "spectrum")
+            self.assertEqual(scattering["spectrum_path"], spectrum_path)
+            self.assertEqual(scattering["lipofundin_fraction"], 0.35)
+            self.assertEqual(scattering["anisotropy_g"], 0.78)
+            self.assertTrue(
+                np.allclose(
+                    scattering["spectrum_wavelengths_nm"],
+                    [500.0, 700.0],
+                )
+            )
+            self.assertTrue(
+                np.allclose(
+                    scattering["spectrum_values_cm1"],
+                    [100.03, 50.5],
+                )
+            )
+        finally:
+            Path(spectrum_path).unlink(missing_ok=True)
 
 
 if __name__ == '__main__':

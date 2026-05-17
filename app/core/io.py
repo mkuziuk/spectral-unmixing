@@ -303,7 +303,7 @@ def _load_two_column_csv(path: str):
     values = []
     with open(path, "r") as f:
         reader = csv.reader(f)
-        header = next(reader)  # skip header
+        next(reader)  # skip header
         for row in reader:
             if len(row) < 2:
                 continue
@@ -315,6 +315,38 @@ def _load_two_column_csv(path: str):
                     f"Non-numeric data in {path!r}, row {reader.line_num}: {row!r}"
                 ) from exc
     return wavelengths, values
+
+
+def load_mu_s_prime_spectrum(path: str) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Load a reduced scattering spectrum μs'(λ) from a two-column CSV.
+
+    Format: header row, then ``wavelength_nm,mu_s_prime_cm-1`` (comma-separated, decimal point).
+    """
+    if not path or not os.path.isfile(path):
+        raise FileNotFoundError(f"Scattering spectrum file not found: {path}")
+
+    wavelengths, values = _load_two_column_csv(path)
+    if len(wavelengths) < 2:
+        raise ValueError(
+            f"Scattering spectrum must contain at least two data rows: {path}"
+        )
+
+    wl = np.asarray(wavelengths, dtype=float)
+    mus_prime = np.asarray(values, dtype=float)
+    if wl.shape[0] != mus_prime.shape[0]:
+        raise ValueError("Scattering spectrum wavelength and value lengths must match.")
+
+    if np.any(mus_prime <= 0):
+        raise ValueError("Scattering spectrum values must be > 0.")
+
+    order = np.argsort(wl, kind="mergesort")
+    wl_sorted = wl[order]
+    mus_sorted = mus_prime[order]
+    if np.any(np.diff(wl_sorted) <= 0):
+        raise ValueError("Scattering spectrum wavelengths must be strictly increasing.")
+
+    return wl_sorted, mus_sorted
 
 
 # ---------------------------------------------------------------------------
